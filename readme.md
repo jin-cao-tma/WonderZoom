@@ -1,8 +1,15 @@
-# <img src="assets/icons/favicon.ico" alt="WonderZoom Icon" width="32" height="32"> WonderZoom: Multi-Scale 3D World Generation
+<p align="center">
+    <img src="assets/icons/logo.png" height=150>
+</p>
 
-This repository contains the code release for WonderZoom: Multi-Scale 3D World Generation by Jin Cao*, Koven Yu*, Jiajun Wu
+# WonderZoom: Multi-Scale 3D World Generation
 
-**[Project Page](https://wonderzoom.github.io/) / [Paper]()**
+<div align="center">
+
+[![Website](https://img.shields.io/badge/Website-WonderZoom-blue)](https://wonderzoom.github.io/)
+[![Paper](https://img.shields.io/badge/Paper-PDF-red)](https://jin-cao-tma.github.io/data/wonderzoom_paper.pdf)
+
+</div>
 
 
 
@@ -10,5 +17,7 @@ This repository contains the code release for WonderZoom: Multi-Scale 3D World G
 
 
 
-**Code is currently being organized and will be released soon** 🚧 
+> #### [WonderZoom: Multi-Scale 3D World Generation](https://wonderzoom.github.io/)
+> ##### [Jin Cao*](https://jin-cao-tma.github.io/), [Koven Yu*](https://kovenyu.com/), [Jiajun Wu](https://jiajunwu.com/) ("*" denotes equal contribution)
 
+**Code is currently being organized and will be released soon** 🚧 
