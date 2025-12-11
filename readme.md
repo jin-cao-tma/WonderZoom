@@ -7,7 +7,7 @@
 <div align="center">
 
 [![Website](https://img.shields.io/badge/Website-WonderZoom-blue)](https://wonderzoom.github.io/)
-[![Paper](https://img.shields.io/badge/Paper-PDF-red)](https://jin-cao-tma.github.io/data/wonderzoom_paper.pdf)
+[![Paper](https://img.shields.io/badge/Paper-PDF-red)](https://arxiv.org/abs/2512.09164)
 
 </div>
 
