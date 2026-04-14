@@ -1,0 +1,215 @@
+runs_dir: output/animation_lakeside_1
+example_name: animation_lakeside_1
+image_filepath: example_images/Tree.png
+pth_path: ./gaussian/gau_beetle1_complete1080.pth
+orig_H: 720
+orig_W: 1080
+seed: 1
+# enable guided depth diffusion
+depth_conditioning: True
+
+# use gpt to generate scene description
+use_gpt: False
+debug: True
+
+# depth model and camera/depth parameters
+depth_model: moge 
+camera_speed: 0.001
+fg_depth_range: 0.015
+depth_shift: 0.001
+sky_hard_depth: 0.02
+init_focal_length: 1024 
+amount: 1. 
+#rewrite parameters  
+use_scaling_pull: True
+use_grad_single: True
+use_grad_rewrite: True
+rewrite_grad_thra: [10,3]
+use_harmol: False
+# pull_foreground_depth_rewrite: True
+use_tilt: True
+grad_magnitude_threshold_single: 20
+
+# orbit camera function configuration - street view dedicated function
+generate_orbit_cameras_code: |
+  def generate_orbit_cameras(center_camera, gaussians, opt, xyz_scale, n_frames=49, radius_factor=8e-4, height_variation=0e-4, n_spirals=1, transition_frames=9):
+      """Generate cameras in a spiral trajectory for better 3D perception
+      
+      Args:
+          center_camera: The current camera (will be cameras[0])
+          gaussians: Gaussian model
+          opt: Options
+          xyz_scale: Scale factor
+          n_frames: Total number of frames (default 49)
+          radius_factor: Base radius factor, will be scaled by focal length (default 6e-4)
+          height_variation: Height variation during orbit
+          n_spirals: Number of spirals
+          transition_frames: Number of frames to transition from center_camera to orbit start (default 9)
+      """
+      from pytorch3d.renderer import PerspectiveCameras
+      import math
+      import torch
+      
+      cameras = []
+      device = center_camera.device
+      
+      # Calculate orbit frames count
+      orbit_frames = n_frames - transition_frames
+      
+      # Get current camera parameters
+      transform_matrix_pt3d = center_camera.get_world_to_view_transform().get_matrix()[0].transpose(0,1).inverse() # c2w
+      center_R = transform_matrix_pt3d[:3, :3]
+      center_T = transform_matrix_pt3d[:3, 3]
+      center_K = center_camera.K
+      
+      # Calculate radius proportional to focal length
+      focal_length = center_K[0, 0, 0].item()  # fx
+      reference_focal = 10240.0  # reference focal length
+      radius = radius_factor * min(focal_length / reference_focal, 1024.0/10240.)*6
+      radius *= 0.5 if center_camera.K[0,0,0]<30538 else 1
+      
+      # print(f"Focal length: {focal_length:.2f}, Calculated radius: {radius:.6f}")
+      factor = (0.4 if center_camera.K[0,0,0]>20538 else 1.0)
+      # factor = (0.4 if center_camera.K[0,0,0]>140000 else 1.0)
+      radius *=  1 #(factor*1 if center_camera.K[0,0,0]>6538 else 1)
+      # Step 1: Get scene depth via depth rendering
+      tdgs_cam = convert_pt3d_cam_to_3dgs_cam(center_camera, xyz_scale=xyz_scale, config=config)
+      render_pkg = render(tdgs_cam, gaussians, opt, torch.tensor([0.7, 0.7, 0.7], dtype=torch.float32, device='cuda'), render_visible=True, config=config)
+      depth_map = render_pkg["median_depth"][0].squeeze().detach().cpu() / xyz_scale
+      
+      H, W = depth_map.shape
+      center_depth = depth_map[H//2, W//2].item()
+      
+      if center_depth <= 0 or center_depth > 10:
+          center_depth = 1e-2
+      else:
+          center_depth *= 1.00
+      
+      # Step 2: Calculate look-at point
+      camera_center = center_camera.get_camera_center().squeeze(0)  # [3]
+      
+      R_transposed = center_R #.transpose(-2, -1)  # [1, 3, 3]
+      forward_world = R_transposed[ :, 2]  # [3] forward direction
+      
+      # look-at point = camera center + depth * forward direction
+      look_at_point = camera_center + center_depth * forward_world
+      print(f"look_at_point: {look_at_point*1000}")
+      # print(f"Camera center: {camera_center}")
+      # print(f"Forward direction: {forward_world}")
+      # print(f"Look-at point: {look_at_point}")
+      
+      # Step 3: Calculate coordinate system
+      forward_unit = forward_world / torch.norm(forward_world)
+      
+      world_up = torch.tensor([0.0, 1.0, 0.0], device=device)
+      # if torch.abs(torch.dot(forward_unit, world_up)) > 0.9:
+      #     world_up = torch.tensor([1.0, 0.0, 0.0], device=device)
+      
+      # world_up = torch.tensor([0.0, 1.0, 0.0], device=device)
+      # forward_unit = torch.tensor([0.0, 0.0, 1.0], device=device)
+      right = torch.cross(forward_unit, world_up)
+      right = right / torch.norm(right)
+      up = torch.cross(right, forward_unit)
+      up = up / torch.norm(up)
+      
+      # Step 4: Generate orbit camera sequence
+      orbit_cameras = []
+      for i in range(1,orbit_frames+1):
+          t = i / orbit_frames
+          angle = 2 * math.pi * n_spirals * t
+          
+          current_radius = radius 
+          
+          offset_x = current_radius * math.cos(angle)
+          offset_y = current_radius * math.sin(angle)
+          offset_z = center_depth * 0.1 * t *0
+          
+          height_offset = height_variation * math.sin(2 * math.pi * t * 1.5) 
+          
+          new_camera_pos = (camera_center + 
+                          offset_x * right + 
+                          (offset_y + height_offset) * up + 
+                          offset_z * forward_unit + forward_unit*center_depth*(1-factor) )
+          
+          # Calculate new forward direction (pointing to look-at point)
+          new_forward = look_at_point - new_camera_pos
+          new_forward = new_forward / torch.norm(new_forward)
+          
+          # Recalculate coordinate system
+          new_right = torch.cross(new_forward, world_up)
+          if torch.norm(new_right) > 1e-6:
+              new_right = new_right / torch.norm(new_right)
+
+          new_up = torch.cross(new_right, new_forward)
+          
+          # Build rotation matrix
+          R_cam_to_world = torch.stack([-new_right, new_up, new_forward], dim=1)  # [3, 3] column vectors
+          
+          T_new = new_camera_pos.unsqueeze(0)
+          new_w2c = torch.zeros((4,4), device=device)
+          new_w2c[:3, :3] = R_cam_to_world
+          new_w2c[:3, 3] = T_new
+          new_w2c[3, 3] = 1
+          new_w2c = new_w2c.inverse()
+          
+          # camera1 = PerspectiveCameras(
+          #     R=new_w2c[:3, :3].transpose(0,1).unsqueeze(0), 
+          #     T=new_w2c[:3, 3].unsqueeze(0), 
+          #     # R=center_R,
+          #     # T=center_T,
+          #     K=center_K,
+          #     image_size=center_camera.image_size, 
+          #     device=device
+          # )
+          
+          camera = copy.deepcopy(center_camera)
+          
+          camera.R = new_w2c[:3, :3].transpose(0,1).unsqueeze(0)
+          camera.T = new_w2c[:3, 3].unsqueeze(0)
+          camera.K = copy.deepcopy(center_K)
+          camera.K[0, 0, 0] *= factor
+          camera.K[ 0,1,1] *= factor
+          camera.image_size = center_camera.image_size
+          camera.device = device
+          # comprehensive_camera_comparison(camera1, camera)
+          orbit_cameras.append(camera)
+      
+      # Step 5: Generate transition sequence from current_camera to first orbit frame
+      if transition_frames > 0 and len(orbit_cameras) > 0:
+          first_orbit_camera = orbit_cameras[0]
+          
+          # Use existing interpolation function to generate transition frames
+          from util.utils import interpolate_cameras_RT
+          transition_cameras = interpolate_cameras_RT(center_camera, first_orbit_camera, num_frames=transition_frames + 1, config=config)
+          
+          # Remove last frame (because it duplicates orbit_cameras[0])
+          transition_cameras = transition_cameras[:-1]
+          
+          print(f"🎬 Generated {len(transition_cameras)} transition frames + {len(orbit_cameras)} orbit frames = {len(transition_cameras) + len(orbit_cameras)} total")
+          
+          # Combine: transition frames + orbit frames
+          cameras = transition_cameras + orbit_cameras
+      else:
+          # If no transition frames, use orbit cameras directly
+          # print(f"🎬 Generated {len(orbit_cameras)} pure orbit frames (no transition)")
+          cameras = orbit_cameras
+      
+      # Verify camera settings
+      if len(cameras) > 0:
+          if transition_frames > 0:
+              # When there are transition frames, the first frame should be current_camera
+              center_pos_original = center_camera.get_camera_center()
+              center_pos_first = cameras[0].get_camera_center()
+              is_same = torch.allclose(center_pos_original, center_pos_first, atol=1e-4)
+              # print(f"✅ cameras[0] is current_camera: {is_same}")
+              # if not is_same:
+              #     print(f"   Original center: {center_pos_original.squeeze()}")
+              #     print(f"   First camera center: {center_pos_first.squeeze()}")
+          else:
+              # When there are no transition frames, the first frame is the first orbit frame (not current_camera)
+              # print(f"✅ Pure orbit mode: cameras[0] is orbit start (not current_camera)")
+              pass
+
+      return cameras
+      # return [center_camera] * len(cameras)
+

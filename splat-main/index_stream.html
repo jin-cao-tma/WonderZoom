@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>WonderZoom Viewer</title>
+    <meta charset="utf-8" />
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" />
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            width: 100vw;
+            font-family: sans-serif;
+            background: rgb(255, 255, 255);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .top-bar {
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: row;
+            overflow: hidden;
+            padding: 10px;
+            box-sizing: border-box;
+            gap: 20px;
+        }
+
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            box-sizing: border-box;
+        }
+
+        .canvas-area canvas {
+            max-width: 100%;
+            height: auto;
+            border: 3px solid black;
+        }
+
+        .controls-panel {
+            margin-top: 12px;
+            padding: 10px 16px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+            max-width: 720px;
+            width: 100%;
+        }
+
+        .controls-panel h4 {
+            margin: 0 0 6px 0;
+            font-size: 14px;
+        }
+
+        .controls-panel kbd {
+            display: inline-block;
+            padding: 1px 6px;
+            font-size: 12px;
+            font-family: monospace;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-shadow: 0 1px 0 #bbb;
+        }
+
+        .bottom-bar {
+            padding: 10px;
+            font-size: small;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        #quality, #server-state, #caminfo {
+            font-size: small;
+        }
+
+        #caminfo {
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div id="main-content">
+
+        <!-- Content area -->
+        <div class="content-area">
+
+            <!-- Canvas area -->
+            <div class="canvas-area">
+                <canvas id="canvas" width="720" height="480" style="border: 3px solid black;"></canvas>
+
+                <div class="controls-panel">
+                    <h4>Controls</h4>
+                    <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Rotate camera &nbsp;&nbsp;
+                    <kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> Move camera &nbsp;&nbsp;
+                    <kbd>V</kbd> Zoom in &nbsp;&nbsp;
+                    <kbd>B</kbd> Zoom out &nbsp;&nbsp;
+                    <kbd>Space</kbd> Orbit rotation
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bottom status bar -->
+        <div class="bottom-bar">
+            <div id="server-state">
+                <span id="server-connect">Connecting to server...</span>
+            </div>
+            <div id="quality">
+                FPS: <span id="fps"></span>
+            </div>
+            <div id="caminfo">
+                <div>Focal X: <span id="focal-x"></span></div>
+                <div>Focal Y: <span id="focal-y"></span></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
+    <script src="main_stream.js"></script>
+</body>
+</html>

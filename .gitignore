@@ -1,0 +1,34 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+*.so
+.DS_Store
+
+# Runtime directories
+cache/
+frames/
+output/
+exp/
+*.log
+
+# Model checkpoints (download from HuggingFace)
+gaussian/*.pth
+gaussian/*.splat
+*.ckpt
+*.safetensors
+*.bin
+!submodules/**/*.bin
+
+# Environment
+.env
+*.session.log
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude_user/
