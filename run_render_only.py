@@ -22,6 +22,7 @@ import time
 import copy
 import math
 import logging
+import signal
 import threading
 import warnings
 from argparse import ArgumentParser
@@ -664,6 +665,7 @@ if __name__ == "__main__":
     logging.getLogger("werkzeug").addFilter(_WebSocketCloseNoise())
     server_thread = threading.Thread(
         target=lambda: socketio.run(app, host=args.host, port=args.port, allow_unsafe_werkzeug=True),
+        daemon=True,
     )
     server_thread.start()
 
@@ -671,4 +673,19 @@ if __name__ == "__main__":
     render_thread = threading.Thread(target=render_current_scene, daemon=True)
     render_thread.start()
 
-    server_thread.join()
+    def _on_sigterm(signum, frame):
+        print("Terminated (SIGTERM); shutting down")
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
+    # Ctrl+C / SIGTERM: stop the render thread before the interpreter exits (a daemon thread inside a
+    # torch call while the interpreter finalizes aborts the process).
+    try:
+        while server_thread.is_alive():
+            server_thread.join(timeout=1.0)
+    except KeyboardInterrupt:
+        print("Interrupted")
+    finally:
+        render_stop = True
+        render_thread.join(timeout=10)

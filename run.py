@@ -4717,7 +4717,8 @@ if __name__ == "__main__":
     detect_object_features()
     for name in ('gen3c', 'coz', 'step1x'):
         if not svc.enabled(name):
-            print(f"⚠️ {name} service disabled (no interpreter registered or services.{name}.enabled is false)")
+            why = '--no_services' if args.no_services else f'no interpreter registered or services.{name}.enabled is false'
+            print(f"⚠️ {name} service disabled ({why})")
 
     # Exclusive GPU policy: the main models are parked in host RAM while a worker runs.
     svc.register_main_tenant(park_main_models, unpark_main_models, device=MAIN_GPU,
@@ -4797,5 +4798,8 @@ if __name__ == "__main__":
         exit_code = 1
     finally:
         render_stop = True
+        # Let the render thread leave torch first: a daemon thread inside a torch call while the
+        # interpreter finalizes aborts the process ('terminate called without an active exception').
+        render_thread.join(timeout=10)
         svc.shutdown()
     sys.exit(exit_code)

@@ -246,7 +246,7 @@ repository. See [Viewing saved scenes](docs/GENERATION_GUIDE.md#viewing-saved-sc
 
 | | Render-only viewer | Generation |
 |---|---|---|
-| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 with the default build; about 7 GiB peak (7,167 MiB in `nvidia-smi`) for the largest released scene | two GPUs with ≥46 GB (profile B, tested), or one GPU with ≥46 GB (profile A, single-GPU `exclusive` policy; tested on one L40S 46 GB: camera move, zoom-in and save, 37.9 GB peak) |
+| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 with the default build; about 7 GiB peak (7,167 MiB in `nvidia-smi`) for the largest released scene | two GPUs with ≥46 GB (profile B, tested), or one GPU with ≥46 GB (profile A, single-GPU `exclusive` policy; tested end to end on one L40S 46 GB, peak 39,971 MiB in `nvidia-smi`) |
 | Tested on | 1x NVIDIA L40S 46 GB | 2x NVIDIA L40S 46 GB: the main process on GPU 0, Gen3C, Chain-of-Zoom and Step1X-Edit taking turns on GPU 1 (`exclusive`) |
 | Host RAM | about 1.4 GB RSS for the largest released scene | ≥192 GB recommended, 256 GB to be safe (idle models are parked in RAM; measured peak RSS of the server and its workers: 135 GB with object insertion); loading Gen3C alone needs ≥96 GB |
 | Disk | ~7.8 GB scenes + `wz-main` (12 GB) | ~168 GB checkpoints (`--all`) + four environments (about 40 GB) |

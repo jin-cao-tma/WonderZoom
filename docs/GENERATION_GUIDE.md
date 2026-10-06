@@ -41,6 +41,8 @@ If start-up or the initial scene fails, the server exits with an error. The stat
 server accepts requests. A request that needs a worker that is still loading waits for it
 (`Waiting for <service> to finish loading...`).
 
+Stop the server with Ctrl+C (or `kill <pid>`, i.e. SIGTERM); it stops the model workers before it exits.
+
 The page (`splat-main/index_gen.html`) shows:
 - the live preview, with the key table next to it;
 - the object prompt box at the top;
@@ -399,8 +401,8 @@ gpu: {policy: resident, main_device: 0}
 services: {gen3c: {device: 1}, coz: {device: 2}, step1x: {device: 3}}
 ```
 
-Measured memory and timings: [HARDWARE.md](HARDWARE.md). Profile B (2x L40S 46 GB) is the configuration tested most thoroughly (camera move, zoom-in, undo, HQ views,
-object insertion, save). Profile A was tested end to end on one L40S 46 GB (camera move, zoom-in, save); profile C is untested.
+Measured memory and timings: [HARDWARE.md](HARDWARE.md). Profiles A (one L40S 46 GB) and B (2x L40S 46 GB) were tested end to end: camera move, zoom-in, undo, HQ views,
+object insertion, save. Profile C is untested.
 
 ## Optional features and OPENAI_API_KEY
 

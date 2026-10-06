@@ -10,7 +10,7 @@ L40S.
 
 | | Render-only viewer | Generation |
 |---|---|---|
-| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 (default build); peak 7,167 MiB (`nvidia-smi`) for the largest released scene (`gau_bird3_complete1080.pth`, 18.4 M Gaussians) | profile B: two GPUs with ≥46 GB (tested); profile A: one GPU with ≥46 GB (tested: camera move, zoom-in, save on one L40S 46 GB); profile C: four GPUs with ≥48 GB (untested); see [Profiles](#gpu-profiles) |
+| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 (default build); peak 7,167 MiB (`nvidia-smi`) for the largest released scene (`gau_bird3_complete1080.pth`, 18.4 M Gaussians) | profile B: two GPUs with ≥46 GB (tested); profile A: one GPU with ≥46 GB (tested end to end on one L40S 46 GB); profile C: four GPUs with ≥48 GB (untested); see [Profiles](#gpu-profiles) |
 | Host RAM | about 1.4 GB RSS measured for the largest released scene | ≥192 GB recommended, 256 GB to be safe (idle models are parked in RAM); measured peak RSS of the server and its workers: 135 GB (profile B, with object insertion); loading Gen3C alone needs ≥96 GB |
 | Disk | ~7.8 GB scenes + `wz-main` env (12 GB) | ~168 GB checkpoints (`download_checkpoints.sh --all`) + four envs (about 40 GB); a fast local disk is recommended |
 | CPU | any | building the environments is CPU-bound (see [Build times](#build-times)) |
@@ -22,7 +22,7 @@ rebuild ([INSTALL.md](INSTALL.md#build-settings)) and are untested.
 
 | Profile | Layout (`config/services.yaml`) | Policy | Status |
 |---|---|---|---|
-| A. one GPU ≥46 GB | everything on GPU 0 | `auto` → `exclusive`; Step1X-Edit offload on | tested on one L40S 46 GB: start-up to idle 245 s, camera move 953 s, zoom-in 166 s, save 2.5 s; GPU peak 37,869 MiB (`nvidia-smi`) |
+| A. one GPU ≥46 GB | everything on GPU 0 | `auto` → `exclusive`; Step1X-Edit offload on | **tested end to end** on one L40S 46 GB: camera move, zoom-in, undo, HQ views, object insertion, save. Start-up to idle 223-253 s, camera move 953-966 s, zoom-in 144-170 s, HQ views 373-377 s, zoom-in with object insertion 299-317 s, save < 3 s; GPU peak 39,971 MiB (`nvidia-smi`, during a camera move) |
 | B. two GPUs ≥46 GB | main on 0; gen3c, coz, step1x on 1 | `auto` → `exclusive` on GPU 1 only; the main models are never parked; Step1X-Edit offload on with 46 GB | **tested end to end** on 2x L40S 46 GB: camera move, zoom-in, undo, HQ views, object insertion, save |
 | C. four GPUs ≥48 GB | main 0, gen3c 1, coz 2, step1x 3 | `resident` | untested |
 
@@ -31,8 +31,8 @@ The `auto` policy decides with the per-tenant `resident_gb` estimates from `conf
 `gpu.policy: exclusive`, which gives the same placement as `auto` there: GPU 1 `exclusive`, GPU 0 (one tenant)
 `resident`.
 
-In profile B on 46 GB cards, the main GPU peaked at 43,231 MiB while GroundedSAM was loading for object insertion,
-close to the limit. Keep other processes off that GPU.
+In profile B on 46 GB cards, the main GPU peaked at 38,857 MiB during camera-move processing and at 32,983 MiB in an
+object-insertion run. Keep other processes off that GPU.
 
 ## Single-service measurements (one L40S 46 GB)
 
@@ -48,7 +48,7 @@ includes the CUDA context and allocator overhead; it was sampled every 500 ms.
 | Step1X-Edit, `offload` off | 778 s cold from NFS | 74 s | 15 s per edit | 39.9 GiB (upstream figure: 42.5 GB) | 41,713 MiB |
 | Gen3C, camera move (121 frames at 1280x704, 18 steps) | 669-676 s with the checkpoints on a local disk (unpickling the legacy T5-11B checkpoint dominates; more than 60 min from slow NFS); 108-122 s end to end | 529 s | 484-502 s | 34.2 GiB | 35,591 MiB (36,521 MiB end to end) |
 | Gen3C, HQ views (121 frames, 10 steps) | | 263 s of denoising (end to end) | | as for camera moves | not measured separately |
-| Main process (models + scene) | models 10-13 s and initial scene 12.7 s (end to end); about 60 s from launch to `idle` with a warm cache; about 30 min cold from NFS | | | not recorded | GPU 0 in profile B: 38,857 MiB during camera-move processing, 43,231 MiB while GroundedSAM loads; about 12 GB with `--no_services` |
+| Main process (models + scene) | models 10-13 s and initial scene 12.7 s (end to end); about 60 s from launch to `idle` with a warm cache; about 30 min cold from NFS | | | not recorded | GPU 0 in profile B: 38,857 MiB during camera-move processing, 32,983 MiB in an object-insertion run; about 12 GB with `--no_services` |
 
 The smoke tests require a parked (suspended) worker to keep less than 1.5 GiB allocated on the GPU. Chain-of-Zoom
 and Step1X-Edit pass with 0.01 GiB, and Gen3C passes as well. Gen3C and Chain-of-Zoom give identical output before

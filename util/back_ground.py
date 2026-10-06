@@ -1,3 +1,4 @@
+import functools
 import os
 
 import torch
@@ -31,6 +32,21 @@ def default_objects_checkpoint(filename):
     if not os.path.isabs(ckpt_dir):
         ckpt_dir = os.path.join(_REPO_ROOT, ckpt_dir)
     return os.path.join(ckpt_dir, "objects", filename)
+
+
+def _without_cudnn_benchmark(fn):
+    """Run fn with cudnn.benchmark off, then restore it. run.py's render_rough_video switches the
+    global flag on, and autotuning GroundingDINO / SAM then reserves ~28 GB of GPU memory instead of
+    ~7 GB, for masks that differ only by floating-point effects (a few pixels)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        benchmark = torch.backends.cudnn.benchmark
+        torch.backends.cudnn.benchmark = False
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            torch.backends.cudnn.benchmark = benchmark
+    return wrapper
 
 
 class GroundedSAMSegmentationModel:
@@ -204,6 +220,7 @@ class GroundedSAMSegmentationModel:
 
         return boxes_filt, torch.Tensor(scores), pred_phrases
 
+    @_without_cudnn_benchmark
     def segment(self, image, text_prompt, box_threshold=0.3, text_threshold=0.25):
         """
         Segment an image
