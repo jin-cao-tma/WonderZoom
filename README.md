@@ -323,7 +323,9 @@ WonderZoom/
 ## TODO
 
 - [x] Release rendering and interactive visualization code
-- [x] Release the generation pipeline (Gen3C camera moves, Chain-of-Zoom zoom-in, Step1X-Edit object insertion)
+- [x] Release Chain-of-Zoom integration for multi-scale zoom-in generation
+- [x] Release Gen3C integration for high-quality novel view synthesis
+- [x] Release Step1X-Edit integration for object editing
 
 ## Related Project
 
