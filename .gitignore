@@ -12,15 +12,36 @@ cache/
 frames/
 output/
 exp/
+runs/
+logs/
+workspace/
+gen3c_output/
 *.log
+rough_video.mp4
+mask_video.mp4
+debug_warp_*.png
 
-# Model checkpoints (download from HuggingFace)
-gaussian/*.pth
-gaussian/*.splat
+# Third-party clones (scripts/setup_third_party.sh) and checkpoints (scripts/download_checkpoints.sh)
+external/
+# GLM headers cloned at GLM_COMMIT (third_party/pins.env) by 'scripts/setup_third_party.sh glm'
+submodules/depth-diff-gaussian-rasterization-min/third_party/glm/
+checkpoints/
+# Hugging Face download metadata written next to local-dir downloads (e.g. --scenes)
+/.cache/
+
+# Model weights and scenes (download from Hugging Face)
+gaussian/*
+!gaussian/.gitkeep
+*.pt
+*.pth
+*.splat
 *.ckpt
 *.safetensors
 *.bin
 !submodules/**/*.bin
+
+# Machine-specific settings (written by scripts/register_env.py)
+config/services.local.yaml
 
 # Environment
 .env

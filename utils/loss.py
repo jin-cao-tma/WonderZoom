@@ -14,8 +14,6 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from simple_knn._C import distCUDA2
-
 def scaling_regularization_loss(gaussians, camera, lambda_scale=10000, base_threshold=0.01, distance_factor=1.0):
     """
     Efficient scaling regularization loss
@@ -284,11 +282,15 @@ with torch.no_grad():
     conv.weight.data = kernel #torch.ones((1,1,kernelsize,kernelsize))
     conv.bias.data = torch.tensor([0.])
     conv.requires_grad_(False)
-    conv = conv.cuda()
+    # Kept on the CPU here and moved to the input's device in nearMean_map(), so that importing this
+    # module needs no GPU (e.g. a CPU-only `run.py --dry_run`). The paper-era code called conv.cuda() here.
 
 
 def nearMean_map(array, mask, kernelsize=3):
     """ array: (H,W) / mask: (H,W) """
+    global conv
+    if conv.weight.device != array.device:
+        conv = conv.to(array.device)
     cnt_map = torch.ones_like(array)
 
     nearMean_map = conv((array * mask)[None,None])

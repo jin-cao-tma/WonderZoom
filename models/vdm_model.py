@@ -13,10 +13,18 @@ from pytorch3d.renderer import (
 import sys 
 import os
 from gaussian_renderer import render, compute_target_scale_per_frame
-from utils.general import build_rotation, rotation2normal
-# Get the absolute path of the current file
-sys.path.append("./GeometryCrafter")
-sys.path.append("./MoGe")
+from utils.general import rotation2normal
+# Vendored GeometryCrafter and MoGe, resolved from the repository root (independent of the cwd).
+# MoGe goes to the front so a pip-installed 'moge' never shadows the vendored copy. GeometryCrafter
+# is appended (its package names are unique) so its utils/ cannot shadow WonderZoom's utils/.
+WZ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_GEOMETRYCRAFTER_DIR = os.path.join(WZ_ROOT, "GeometryCrafter")
+_MOGE_DIR = os.path.join(WZ_ROOT, "MoGe")
+if _MOGE_DIR in sys.path:
+    sys.path.remove(_MOGE_DIR)
+sys.path.insert(0, _MOGE_DIR)
+if _GEOMETRYCRAFTER_DIR not in sys.path:
+    sys.path.append(_GEOMETRYCRAFTER_DIR)
 from geo_infer import *
 from moge.model.v1 import *
 from models.models_vdm import *
@@ -25,10 +33,11 @@ from util.utils import convert_pt3d_cam_to_3dgs_cam
 
 
 import utils3d
-from util.segment_utils import create_mask_generator_repvit
 from torchvision.transforms import ToPILImage
 
-background = torch.tensor([0.7, 0.7, 0.7], dtype=torch.float32, device='cuda')
+# CPU only when no GPU is visible (e.g. a CPU-only `run.py --dry_run`), so that the import works.
+background = torch.tensor([0.7, 0.7, 0.7], dtype=torch.float32,
+                          device='cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class VideoFrameProcessor(FrameSyn):
@@ -65,6 +74,8 @@ class VideoFrameProcessor(FrameSyn):
         
         # Initialize MoGe and related models
         self.moge, self.pipe, self.point_map_vae = get_moge_geo_model(model_type="diff")
+        # Pristine MoGe weights (CPU copy), restored after every per-frame MoGe fine-tune.
+        self._moge_pristine_state = {k: v.detach().cpu().clone() for k, v in self.moge.model.state_dict().items()}
         # self.moge = get_moge()
         # self.vggt = create_vggt_api(device="cuda")
         # self.moge = moge
@@ -74,6 +85,25 @@ class VideoFrameProcessor(FrameSyn):
         # self.mask_generator = create_mask_generator_repvit()
         self.mask_generator = mask_generator
         self.grounded_sam = grounded_sam
+        # Foreground/background extractor for pull_foreground_depth_rewrite: a callable
+        # image_path -> (foreground_words, background_description), e.g. util.gpt4.extract_foreground_background
+        # with the config fallbacks. Injected by run.py; None disables the option (with a warning).
+        self.extract_fg_bg = None
+        self._warned_foreground_rewrite = False
+    def _foreground_rewrite_available(self):
+        """pull_foreground_depth_rewrite needs GroundedSAM and either config foreground_words or an injected extractor."""
+        missing = []
+        if self.grounded_sam is None:
+            missing.append("GroundedSAM (objects stack) is not loaded")
+        if not self.config.get('foreground_words', None) and self.extract_fg_bg is None:
+            missing.append("no foreground extractor (kf_gen.extract_fg_bg) and no config foreground_words")
+        if missing:
+            if not self._warned_foreground_rewrite:
+                print("WARNING: pull_foreground_depth_rewrite is disabled: " + "; ".join(missing) + ".")
+                self._warned_foreground_rewrite = True
+            return False
+        return True
+
     def get_sam_masks(self, image_latest, min_mask_area=500, no_refine_mask=None):
         """Get SAM masks for the input image.
         
@@ -317,7 +347,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
             roots: List of image paths
         """
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -451,7 +481,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
             roots: List of image paths
         """
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -590,7 +620,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
             input_mask: Input mask (H, W) or (1, H, W) to filter final points, True=keep, False=discard
         """
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -886,7 +916,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
             input_mask: Input mask (H, W) or (1, H, W) to filter final points, True=keep, False=discard
         """
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -1065,7 +1095,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
         device = self.device 
         num = 3
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -1171,9 +1201,16 @@ class VideoGaussianProcessor(VideoFrameProcessor):
                             if scaling and self.config['num_finetune_depth_model_steps'] > 0:
                                 self.moge.model.train()
                                 self.moge.model.requires_grad_(True)
-                                best_depth = self.finetune_depth_model(self.moge.model, zbuf, img, a, b, mask_align)
-                                self.moge.model.requires_grad_(False)
-                                self.moge.model.eval()
+                                try:
+                                    best_depth = self.finetune_depth_model(self.moge.model, zbuf, img, a, b, mask_align)
+                                except BaseException:
+                                    # The server keeps serving after a failed job (e.g. CUDA OOM in backward):
+                                    # do not leave a partly fine-tuned MoGe behind for the next requests.
+                                    self.moge.model.load_state_dict(self._moge_pristine_state)
+                                    raise
+                                finally:
+                                    self.moge.model.requires_grad_(False)
+                                    self.moge.model.eval()
                     
                     if best_depth is not None:                
                         depth = best_depth.detach().cpu()                
@@ -1187,7 +1224,9 @@ class VideoGaussianProcessor(VideoFrameProcessor):
                     inf_mask = (depth == torch.inf) | self.generate_sky_mask(img).cpu()
                               
                     if scaling:
-                        self.moge.model = MoGeModel.from_pretrained("Ruicheng/moge-vitl").to(device)                             
+                        # Undo the fine-tune: restore the pristine Ruicheng/moge-vitl weights captured at init
+                        # (same weights as re-downloading them, without network access).
+                        self.moge.model.load_state_dict(self._moge_pristine_state)
                         self.moge = self.moge.to(device).eval()   
                     
                     use_scaling_pull = self.config.get('use_scaling_pull', True)
@@ -1203,8 +1242,13 @@ class VideoGaussianProcessor(VideoFrameProcessor):
                             if torch.abs(diff) > 1e-5:
                                 depth[sam_mask] += diff.to(depth.device)
                     ############################################
-                    if zbuf is not None and self.config.get('pull_foreground_depth_rewrite', False):
-                        foreground_list, background_description = self.grounded_sam.extract_foreground_background(root)
+                    if zbuf is not None and self.config.get('pull_foreground_depth_rewrite', False) and self._foreground_rewrite_available():
+                        foreground_words = self.config.get('foreground_words', None)
+                        if foreground_words:
+                            foreground_list = list(foreground_words)
+                            background_description = self.config.get('background_prompt', '') or ''
+                        else:
+                            foreground_list, background_description = self.extract_fg_bg(root)
                         print(f"   Foreground objects: {foreground_list}")
                         print(f"   Background description: {background_description}")
                     
@@ -1501,7 +1545,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
         device = self.device 
         num = 3
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -1978,7 +2022,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
         device = self.device 
         num = 3
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -2357,7 +2401,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
         """
         device = self.device 
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -2491,11 +2535,27 @@ class VideoGaussianProcessor(VideoFrameProcessor):
                         # bg_mask_gaussian=rearrange(bg_mask_gaussian.squeeze()[None,None], "b c h w -> (w h b) c").detach().cpu().squeeze()
                         # depth_gau_final = render_pkg["median_depth"][0:1].squeeze().detach().cpu() / xyz_scale
                         
+                        geo_cfg = self.config.get('geometrycrafter', None) or {}
+                        # low_memory_usage=True (run.py turns it on under the exclusive GPU policy) keeps
+                        # GeometryCrafter's priors and decoded maps in host RAM, so its means/exp/log run on
+                        # the CPU: depth_video can differ from the paper's GPU-only run (False, the
+                        # GeometryCrafter default) at floating-point level. It is not bit-identical.
+                        # An unresolved null/'auto' means False here (bool('auto') would be True).
+                        low_memory_usage = str(geo_cfg.get('low_memory_usage', False)).lower() in ('true', '1', 'yes', 'on')
                         depth_video, valid_video = inf_geometry(self.moge, self.pipe, self.point_map_vae, 
                                                                 imgs[:].permute(0,2,3,1).numpy(),
-                                                                height=576, width=1024)
+                                                                height=576, width=1024,
+                                                                decode_chunk_size=int(geo_cfg.get('decode_chunk_size', 8)),
+                                                                low_memory_usage=low_memory_usage)
                         depth_video, valid_video = depth_video.cpu(), valid_video.cpu()
-                        mask_align = ((depth_gau>1e-4) & (depth_gau<0.8) & (depth_video[0]<50) & valid_video[0]).float()
+                        # GeometryCrafter runs under torch.inference_mode. With low_memory_usage its output is
+                        # already on the CPU, so .cpu() returns the inference tensor itself, which cannot be
+                        # modified in place below; clone it into a normal tensor (same values).
+                        if depth_video.is_inference():
+                            depth_video = depth_video.clone()
+                        if valid_video.is_inference():
+                            valid_video = valid_video.clone()
+                        mask_align =((depth_gau>1e-4) & (depth_gau<0.8) & (depth_video[0]<50) & valid_video[0]).float()
                         depth_video[depth_video==torch.inf] = 1e6
                         depth_video[~valid_video] = 1e6
                         a, b = compute_scale_and_shift_full(depth_video.squeeze()[0], depth_gau.squeeze(), mask_align)
@@ -2724,7 +2784,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
         """
         device = self.device 
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5
@@ -3009,7 +3069,7 @@ class VideoGaussianProcessor(VideoFrameProcessor):
             roots: List of image paths
         """
         with torch.no_grad():
-            from lightning_fabric import seed_everything
+            from utils.general import seed_everything
 
             seed_everything(100)
             x = torch.arange(self.config["orig_W"]).float() + 0.5

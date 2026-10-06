@@ -21,6 +21,7 @@ import cv2
 import time
 import copy
 import math
+import logging
 import threading
 import warnings
 from argparse import ArgumentParser
@@ -391,9 +392,11 @@ def render_current_scene():
                     rendered_image = rendered_image[..., ::-1]
                     latest_frame = rendered_image
 
-                    socketio.emit('server-state',
-                                  f'Collecting frames: {len(orbit_state["collected_frames"])}/{len(orbit_state["cameras"])}',
-                                  room=client_id)
+                    if orbit_state['mode'] in ('high_quality', 'crack_fix'):
+                        progress = f'Collecting frames: {len(orbit_state["collected_frames"])}/{len(orbit_state["cameras"])}'
+                    else:
+                        progress = f'Orbit preview: {orbit_state["current_frame"] + 1}/{len(orbit_state["cameras"])}'
+                    socketio.emit('server-state', progress, room=client_id)
 
                     orbit_state['current_frame'] = (orbit_state['current_frame'] + 1) % len(orbit_state['cameras'])
 
@@ -407,6 +410,7 @@ def render_current_scene():
                             orbit_state['hq_ready'] = True
                         else:
                             orbit_state['cameras'] = None
+                            socketio.emit('server-state', 'Orbit preview finished', room=client_id)
                 else:
                     # --- Normal rendering path ---
                     current_camera = get_camera_by_js_view_matrix(
@@ -463,7 +467,8 @@ def handle_connect():
 def handle_disconnect():
     print('Client disconnected:', request.sid)
     global client_id
-    client_id = None
+    if client_id == request.sid:  # a newer page may already have taken over the stream
+        client_id = None
 
 
 @socketio.on('render-pose')
@@ -589,6 +594,23 @@ def handle_start_recording():
     print('Received start-recording (render-only mode, no-op)')
 
 
+class _WebSocketCloseNoise(logging.Filter):
+    """Drop Werkzeug's report of a closed Socket.IO WebSocket (a '500' request line plus an
+    'AssertionError: write() before start_response' traceback on every disconnect). Engine.IO takes
+    the socket over and never starts an HTTP response, so this is harmless."""
+
+    def filter(self, record):
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, AssertionError) and "write() before start_response" in str(exc):
+            return False
+        message = record.getMessage()
+        if "write() before start_response" in message:
+            return False
+        if "/socket.io/" in message and "transport=websocket" in message and '" 500 ' in message:
+            return False
+        return True
+
+
 # ===================================================================
 # Main
 # ===================================================================
@@ -598,6 +620,9 @@ if __name__ == "__main__":
     parser.add_argument("--pth_path", default=None, help="Path to the .pth GaussianModel file (overrides config pth_path)")
     parser.add_argument("--base-config", default="./config/base-config.yaml", help="Base config path")
     parser.add_argument("--example_config", default="./config/more_examples/street.yaml", help="Example config path")
+    parser.add_argument("--host", default="0.0.0.0",
+                        help="Bind address (default 0.0.0.0, all interfaces); use 127.0.0.1 to accept local or "
+                             "SSH-forwarded connections only")
     parser.add_argument("--port", default=7747, type=int, help="Server port")
     args = parser.parse_args()
 
@@ -605,7 +630,11 @@ if __name__ == "__main__":
     base_cfg = OmegaConf.load(args.base_config)
     example_cfg = OmegaConf.load(args.example_config)
     config = OmegaConf.merge(base_cfg, example_cfg)
-    assert 'orig_H' in config and 'orig_W' in config, "orig_H and orig_W must be set in the example config"
+    # Scenes saved by run.py may only record the generation size (gen_H/gen_W); use it for the principal point.
+    for orig_key, gen_key in (('orig_H', 'gen_H'), ('orig_W', 'gen_W')):
+        if config.get(orig_key, None) is None and config.get(gen_key, None) is not None:
+            config[orig_key] = config[gen_key]
+    assert 'orig_H' in config and 'orig_W' in config, "orig_H and orig_W (or gen_H and gen_W) must be set in the example config"
 
     # ---- Load config-defined generate_orbit_cameras if present ----
     if 'generate_orbit_cameras_code' in config and config.generate_orbit_cameras_code:
@@ -629,11 +658,12 @@ if __name__ == "__main__":
     fx_wonder = config["init_focal_length"]
     fy_wonder = config["init_focal_length"]
 
-    print(f"Ready! Starting server on port {args.port}")
+    print(f"Ready! Starting server on {args.host}:{args.port}")
 
     # ---- Start server thread ----
+    logging.getLogger("werkzeug").addFilter(_WebSocketCloseNoise())
     server_thread = threading.Thread(
-        target=lambda: socketio.run(app, host='0.0.0.0', port=args.port, allow_unsafe_werkzeug=True),
+        target=lambda: socketio.run(app, host=args.host, port=args.port, allow_unsafe_werkzeug=True),
     )
     server_thread.start()
 

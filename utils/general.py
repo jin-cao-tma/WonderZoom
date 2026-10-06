@@ -245,3 +245,20 @@ def safe_state(silent):
     np.random.seed(0)
     torch.manual_seed(0)
     torch.cuda.set_device(torch.device("cuda:0"))
+
+
+def seed_everything(seed=100):
+    """Seed Python's random, NumPy and torch (all CUDA devices).
+
+    Drop-in replacement for lightning_fabric.seed_everything(seed) (workers=False): same RNG calls in
+    the same order, same PL_GLOBAL_SEED / PL_SEED_WORKERS environment variables, so the random
+    streams are identical without the lightning dependency.
+    """
+    import os
+    seed = int(seed)
+    os.environ["PL_GLOBAL_SEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)  # also seeds every CUDA device
+    os.environ["PL_SEED_WORKERS"] = "0"
+    return seed

@@ -1,0 +1,37 @@
+# Optional object-insertion stack for the main env (wz-main): GPT prompts, GroundedSAM,
+# SD2 background inpainting and INR harmonization. Installed by
+# scripts/install_objects_optional.sh (or install_env_main.sh --objects) on top of
+# requirements/main.txt, with main.txt used as a constraints file.
+# Lines marked '# --no-deps' are installed separately, without dependency resolution:
+#   pip install --no-deps albumentations==1.2.0
+#
+# Not listed here (installed by the script from the pinned Grounded-Segment-Anything clone,
+# see GSAM_COMMIT in third_party/pins.env):
+#   - GroundingDINO, editable and built with --no-build-isolation so that groundingdino._C
+#     compiles and groundingdino/config/*.py stays reachable from the package directory;
+#   - segment_anything from Grounded-Segment-Anything. It differs from PyPI segment-anything==1.0
+#     (HQ-SAM additions), and it is the copy the paper results were produced with.
+
+# GPT-4o prompt helpers (optional; set OPENAI_API_KEY to use them)
+openai==1.93.3
+
+# GroundingDINO runtime dependencies
+addict==2.4.0
+yapf==0.43.0
+supervision==0.25.1
+pycocotools==2.0.10
+
+# INR-Harmonization runtime dependencies (adamp is imported by its misc.py).
+# albumentations 1.2.0 (the tested version) declares scikit-image<0.19, which has no Python 3.10
+# wheel. INR only uses albumentations.Resize (OpenCV), which works with scikit-image 0.21 and gives
+# results identical to cv2.resize, so it is installed without its declared dependencies.
+albumentations==1.2.0  # --no-deps
+qudida==0.0.4
+scikit-learn==1.6.1
+adamp==0.3.0
+# albumentations/qudida pull in the headless OpenCV build; keep it at the same version as
+# opencv-python in main.txt so whichever cv2 wins is the same release and numpy-1.x compatible.
+opencv-python-headless==4.11.0.86
+
+# Google Drive downloads of the INR checkpoint (scripts/download_checkpoints.sh --objects)
+gdown==5.2.0

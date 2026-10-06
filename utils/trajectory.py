@@ -10,7 +10,6 @@
 # its affiliates is strictly prohibited.
 #
 # For permission requests, please contact robot0321@snu.ac.kr, esw0116@snu.ac.kr, namhj28@gmail.com, jarin.lee@gmail.com.
-import os
 import numpy as np
 import torch
 
@@ -532,85 +531,3 @@ def get_camerapaths():
         preset_json[cam_path] = blender_train_json
 
     return preset_json
-
-
-def main():
-    cam_path = 'headbanging_circle'
-    os.makedirs("poses_supplementary", exist_ok=True)
-
-    if cam_path == 'lookaround':
-        render_poses = generate_seed_lookaround()
-    elif cam_path == 'back':
-        render_poses = generate_seed_back()
-    elif cam_path == '360':
-        render_poses = generate_seed_360(360, 360)
-    elif cam_path == '1440':
-        render_poses = generate_seed_360(360, 1440)
-    elif cam_path == 'llff':
-        d = 8
-        render_poses = generate_seed_llff(5, 400, round=4, d=d)
-    elif cam_path == 'headbanging':
-        round=3
-        render_poses = generate_seed_headbanging_(maxdeg=15, nviews_per_round=180, round=round, fullround=0)
-    elif cam_path == 'headbanging_circle':
-        round=2
-        render_poses = generate_seed_headbanging_circle(maxdeg=5, nviews_per_round=180, round=round, fullround=0)
-        
-
-    yz_reverse = np.array([[1,0,0], [0,-1,0], [0,0,-1]])
-
-    c2w_poses = []
-    for render_pose in render_poses:
-        ### Transform world to pixel
-        Rw2i = render_pose[:3,:3]
-        Tw2i = render_pose[:3,3:4]
-
-        # Transfrom cam2 to world + change sign of yz axis
-        Ri2w = np.matmul(yz_reverse, Rw2i).T
-        Ti2w = -np.matmul(Ri2w, np.matmul(yz_reverse, Tw2i))
-        Pc2w = np.concatenate((Ri2w, Ti2w), axis=1)
-        # Pc2w = np.concatenate((Pc2w, np.array([[0,0,0,1]])), axis=0)
-
-        c2w_poses.append(Pc2w)
-
-    c2w_poses = np.stack(c2w_poses, axis=0)
-
-    # np.save(f'poses_supplementary/{cam_path}.npy', c2w_poses)
-
-    FX = 5.8269e+02
-    W = 512
-    fov_x = 2*np.arctan(W / (2*FX))
-    if cam_path in ['360', '1440', 'llff', 'headbanging']:
-        fov_x = fov_x * 1.2
-    blender_train_json = {}
-    blender_train_json["camera_angle_x"] = fov_x
-    blender_train_json["frames"] = []
-
-    for render_pose in render_poses:
-        curr_frame = {}
-        ### Transform world to pixel
-        Rw2i = render_pose[:3,:3]
-        Tw2i = render_pose[:3,3:4]
-
-        # Transfrom cam2 to world + change sign of yz axis
-        Ri2w = np.matmul(yz_reverse, Rw2i).T
-        Ti2w = -np.matmul(Ri2w, np.matmul(yz_reverse, Tw2i))
-        Pc2w = np.concatenate((Ri2w, Ti2w), axis=1)
-
-        curr_frame["transform_matrix"] = Pc2w.tolist()
-        (blender_train_json["frames"]).append(curr_frame)
-
-    import json
-    if cam_path=='llff':
-        train_json_path = f"poses_supplementary/{cam_path}_d{d}.json"
-    elif cam_path=='headbanging':
-        train_json_path = f"poses_supplementary/{cam_path}_r{round}.json"
-    else:
-        train_json_path = f"poses_supplementary/{cam_path}.json"
-    
-    with open(train_json_path, 'w') as outfile:
-        json.dump(blender_train_json, outfile, indent=4)
-
-
-if __name__ == '__main__':
-    main()

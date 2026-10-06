@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>WonderZoom Generation</title>
+    <meta charset="utf-8" />
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no" />
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: sans-serif;
+            background: rgb(255, 255, 255);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .top-bar {
+            padding: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .top-bar label {
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        #prompt-box {
+            flex: 0 1 360px;
+            min-width: 160px;
+            padding: 4px 8px;
+            font-size: 14px;
+        }
+
+        #prompt-current {
+            font-size: 13px;
+            color: #555;
+        }
+
+        #status-line {
+            flex: 1 1 100%;
+            font-size: 13px;
+            font-family: monospace;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #eee;
+            color: #333;
+        }
+
+        #status-line[data-state="loading"] { background: #fff4d6; }
+        #status-line[data-state="idle"]    { background: #e3f5e1; }
+        #status-line[data-state="busy"]    { background: #dce9fb; }
+        #status-line[data-state="error"]   { background: #fbdcdc; color: #900; }
+
+        .content-area {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            padding: 10px;
+            box-sizing: border-box;
+            gap: 20px;
+        }
+
+        .canvas-area {
+            flex: 1 1 720px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            box-sizing: border-box;
+        }
+
+        .canvas-area canvas {
+            max-width: 100%;
+            height: auto;
+            border: 3px solid black;
+        }
+
+        .controls-panel {
+            margin-top: 12px;
+            padding: 10px 16px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+            max-width: 720px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .controls-panel h4 {
+            margin: 0 0 6px 0;
+            font-size: 14px;
+        }
+
+        .controls-panel table {
+            border-collapse: collapse;
+        }
+
+        .controls-panel td {
+            padding: 1px 8px 1px 0;
+            vertical-align: top;
+        }
+
+        .controls-panel kbd {
+            display: inline-block;
+            padding: 1px 6px;
+            font-size: 12px;
+            font-family: monospace;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-shadow: 0 1px 0 #bbb;
+        }
+
+        .feature-off {
+            opacity: 0.45;
+        }
+
+        .feature-off td:last-child::after {
+            content: " (disabled on this server)";
+            font-style: italic;
+        }
+
+        .video-area {
+            flex: 1 1 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 720px;
+        }
+
+        .video-block h3 {
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .video-el {
+            width: 100%;
+            height: auto;
+            max-height: 360px;
+            background: #222;
+            border-radius: 8px;
+            margin-top: 6px;
+        }
+
+        .bottom-bar {
+            padding: 10px;
+            font-size: small;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-top: 1px solid #ddd;
+        }
+
+        #caminfo {
+            text-align: right;
+        }
+
+        #session-dir {
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <!-- Object prompt and server status -->
+    <div class="top-bar">
+        <label for="prompt-box">Object to insert at the next zoom-in:</label>
+        <input type="text" id="prompt-box" autocomplete="off" placeholder="e.g. a ladybug"
+               title="Kept across camera moves until the next zoom-in inserts it; an empty prompt clears it." />
+        <button id="send-button">Set</button>
+        <span id="prompt-current">current: <span id="current-prompt">(none)</span></span>
+        <div id="status-line" data-state="loading">waiting for server...</div>
+    </div>
+
+    <div class="content-area">
+        <!-- Live view -->
+        <div class="canvas-area">
+            <canvas id="canvas" width="720" height="480"></canvas>
+
+            <div class="controls-panel">
+                <h4>Controls</h4>
+                <table>
+                    <tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td>Rotate camera (pitch / yaw)</td></tr>
+                    <tr><td><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>Move forward / back / left / right</td></tr>
+                    <tr><td><kbd>N</kbd><kbd>M</kbd></td><td>Move down / up</td></tr>
+                    <tr><td><kbd>V</kbd><kbd>B</kbd></td><td>Zoom in / out (focal length)</td></tr>
+                    <tr><td><kbd>H</kbd></td><td>Add the current view as a trajectory point (zoom-in: press once at the start view)</td></tr>
+                    <tr><td><kbd>J</kbd></td><td>Clear the trajectory</td></tr>
+                    <tr><td><kbd>R</kbd></td><td>Generate to the current view: zoomed in = zoom-in generation, otherwise camera move</td></tr>
+                    <tr><td><kbd>Q</kbd></td><td>Toggle rewrite / overwrite mode for zoom-in</td></tr>
+                    <tr><td><kbd>Space</kbd></td><td>Orbit preview</td></tr>
+                    <tr data-feature="gen3c"><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>High-quality orbit refinement (Gen3C)</td></tr>
+                    <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Space</kbd></td><td>Fix small cracks</td></tr>
+                    <tr data-feature-show="objects" style="display: none"><td><kbd>P</kbd></td><td>Complete the background behind objects in the current view</td></tr>
+                    <tr><td><kbd>Z</kbd></td><td>Undo the last generation</td></tr>
+                    <tr><td><kbd>X</kbd></td><td>Save the scene</td></tr>
+                    <tr><td><kbd>C</kbd></td><td>Delete the Gaussians visible in the current view</td></tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Generation previews sent by the server -->
+        <div class="video-area">
+            <div class="video-block">
+                <h3>Rough Video</h3>
+                <video id="roughVideo" class="video-el" controls muted playsinline></video>
+            </div>
+            <div class="video-block">
+                <h3>Output Video</h3>
+                <video id="outVideo" class="video-el" controls muted playsinline></video>
+            </div>
+            <div class="video-block">
+                <h3>Concatenated Video</h3>
+                <video id="concatVideo" class="video-el" controls muted playsinline></video>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom status bar -->
+    <div class="bottom-bar">
+        <div id="server-state">
+            <span id="server-connect">Connecting to server...</span>
+            <div id="scene-stats"></div>
+            <div>Session: <span id="session-dir"></span></div>
+            <div id="message"></div>
+        </div>
+        <div id="quality">
+            FPS: <span id="fps"></span>
+        </div>
+        <div id="caminfo">
+            <div>Focal X: <span id="focal-x"></span></div>
+            <div>Focal Y: <span id="focal-y"></span></div>
+        </div>
+    </div>
+
+    <script>
+        // Load the vendored socket.io client, then main_stream.js. run.py
+        // serves this page at '/' and static files under '/splat-main/', so
+        // pick the prefix from the page location (it also works from file://).
+        (function () {
+            var inSplatDir = /\/splat-main\/[^\/]*$/.test(window.location.pathname);
+            var isHttp = /^https?:$/.test(window.location.protocol);
+            var base = (isHttp && !inSplatDir) ? 'splat-main/' : '';
+            var cdn = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.min.js';
+
+            // Served by run.py: talk to the same origin (?server= still wins).
+            // From file:// main_stream.js falls back to http://localhost:7747.
+            if (isHttp && window.location.origin) {
+                window.WZ_DEFAULT_SERVER = window.location.origin;
+            }
+
+            function setMessage(text) {
+                var el = document.getElementById('server-connect');
+                if (el) el.innerText = text;
+            }
+            function load(src, onload, onerror) {
+                var s = document.createElement('script');
+                s.src = src;
+                s.onload = onload;
+                s.onerror = onerror;
+                document.body.appendChild(s);
+            }
+            function loadMain() {
+                load(base + 'main_stream.js', null, function () {
+                    setMessage('Could not load ' + base + 'main_stream.js.');
+                });
+            }
+            load(base + 'vendor/socket.io-4.5.0.min.js', loadMain, function () {
+                load(cdn, loadMain, function () {
+                    setMessage('Could not load the socket.io client.');
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

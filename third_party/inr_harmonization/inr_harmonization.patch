@@ -1,0 +1,257 @@
+WonderZoom patch for WindVChen/INR-Harmonization @ 19946ddaffad415ee72fdda7741db8a2b4379606
+Apply with: git -C external/INR-Harmonization apply third_party/inr_harmonization/inr_harmonization.patch
+(scripts/setup_third_party.sh inr runs 'git apply --check' first and then copies
+third_party/inr_harmonization/inr_harmonization_model.py next to the patched sources.)
+
+Changes:
+  (a) utils/misc.py is moved to a top-level misc.py and every importer now uses
+      'import misc' / 'from misc import ...'. WonderZoom has its own 'utils' package
+      on sys.path, so 'from utils.misc import ...' would resolve to the wrong package.
+  (b) np.int -> np.int32 in model/hrnetv2/hrnet_ocr.py (np.int was removed in NumPy 1.24).
+  (c) model/backbone.py: the HRNet ImageNet initialisation path is read from the
+      INR_HRNET_PRETRAINED environment variable and skipped when it is unset. The
+      harmonization checkpoint (Resolution_RAW_iHarmony4.pth) contains the full weights,
+      so inference does not need it. Upstream used a hard-coded Windows path and called
+      exit(1) when the file was missing.
+  (d) inference_for_arbitrary_resolution_image.py: POSIX default path for --pretrained.
+
+diff --git a/Video_Harmonization/build_dataset.py b/Video_Harmonization/build_dataset.py
+index 27d697a..a3a9524 100644
+--- a/Video_Harmonization/build_dataset.py
++++ b/Video_Harmonization/build_dataset.py
+@@ -5,7 +5,7 @@ import torchvision
+ import os
+ import random
+ 
+-from utils.misc import prepare_cooridinate_input, customRandomCrop
++from misc import prepare_cooridinate_input, customRandomCrop
+ 
+ from datasets.build_INR_dataset import Implicit2DGenerator
+ import albumentations
+diff --git a/Video_Harmonization/inference_3D_LUT_Interpolation.py b/Video_Harmonization/inference_3D_LUT_Interpolation.py
+index d18c86d..d7573b6 100644
+--- a/Video_Harmonization/inference_3D_LUT_Interpolation.py
++++ b/Video_Harmonization/inference_3D_LUT_Interpolation.py
+@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
+ from model.build_model import build_model
+ from datasets.build_dataset import dataset_generator
+ 
+-from utils import misc, metrics
++import misc
++from utils import metrics
+ import numpy as np
+ 
+ from model.lut_transformation_net import TrilinearInterpolation
+diff --git a/Video_Harmonization/inference_normal.py b/Video_Harmonization/inference_normal.py
+index 02031f1..ab93fc7 100644
+--- a/Video_Harmonization/inference_normal.py
++++ b/Video_Harmonization/inference_normal.py
+@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
+ from model.build_model import build_model
+ from datasets.build_dataset import dataset_generator
+ 
+-from utils import misc, metrics
++import misc
++from utils import metrics
+ import numpy as np
+ 
+ 
+diff --git a/Video_Harmonization/processing.py b/Video_Harmonization/processing.py
+index 16eb524..2ba130e 100644
+--- a/Video_Harmonization/processing.py
++++ b/Video_Harmonization/processing.py
+@@ -5,7 +5,8 @@ import datetime
+ import torch
+ import torchvision
+ 
+-from utils import misc, metrics
++import misc
++from utils import metrics
+ 
+ best_psnr = 0
+ 
+diff --git a/datasets/build_INR_dataset.py b/datasets/build_INR_dataset.py
+index 141384f..92b5807 100644
+--- a/datasets/build_INR_dataset.py
++++ b/datasets/build_INR_dataset.py
+@@ -1,4 +1,4 @@
+-from utils import misc
++import misc
+ from albumentations import Resize
+ 
+ 
+diff --git a/datasets/build_dataset.py b/datasets/build_dataset.py
+index 5041494..f36588a 100644
+--- a/datasets/build_dataset.py
++++ b/datasets/build_dataset.py
+@@ -5,7 +5,7 @@ import torchvision
+ import os
+ import random
+ 
+-from utils.misc import prepare_cooridinate_input, customRandomCrop
++from misc import prepare_cooridinate_input, customRandomCrop
+ 
+ from datasets.build_INR_dataset import Implicit2DGenerator
+ import albumentations
+diff --git a/efficient_inference_for_square_image.py b/efficient_inference_for_square_image.py
+index a90104c..a416991 100644
+--- a/efficient_inference_for_square_image.py
++++ b/efficient_inference_for_square_image.py
+@@ -14,13 +14,13 @@ import os
+ import tqdm
+ import time
+ 
+-from utils.misc import prepare_cooridinate_input, customRandomCrop
++from misc import prepare_cooridinate_input, customRandomCrop
+ 
+ from datasets.build_INR_dataset import Implicit2DGenerator
+ import albumentations
+ from albumentations import Resize
+ from torch.utils.data import DataLoader
+-from utils.misc import normalize
++from misc import normalize
+ 
+ import math
+ 
+diff --git a/inference.py b/inference.py
+index bb689c8..f421869 100644
+--- a/inference.py
++++ b/inference.py
+@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
+ from model.build_model import build_model
+ from datasets.build_dataset import dataset_generator
+ 
+-from utils import misc, metrics
++import misc
++from utils import metrics
+ 
+ 
+ def parse_args():
+diff --git a/inference_for_arbitrary_resolution_image.py b/inference_for_arbitrary_resolution_image.py
+index fcfdf5b..56ca894 100644
+--- a/inference_for_arbitrary_resolution_image.py
++++ b/inference_for_arbitrary_resolution_image.py
+@@ -14,13 +14,13 @@ import os
+ import tqdm
+ import time
+ 
+-from utils.misc import prepare_cooridinate_input, customRandomCrop
++from misc import prepare_cooridinate_input, customRandomCrop
+ 
+ from datasets.build_INR_dataset import Implicit2DGenerator
+ import albumentations
+ from albumentations import Resize
+ from torch.utils.data import DataLoader
+-from utils.misc import normalize
++from misc import normalize
+ 
+ import math
+ 
+@@ -210,7 +210,7 @@ def parse_args():
+                         help='INR activation layer type: leakyrelu_pe, sine')
+ 
+     parser.add_argument('--pretrained', type=str,
+-                        default=r'.\pretrained_models\Resolution_RAW_iHarmony4.pth',
++                        default=r'./pretrained_models/Resolution_RAW_iHarmony4.pth',
+                         help='Pretrained weight path')
+ 
+     parser.add_argument('--param_factorize_dim', type=int,
+diff --git a/utils/misc.py b/misc.py
+similarity index 100%
+rename from utils/misc.py
+rename to misc.py
+diff --git a/model/backbone.py b/model/backbone.py
+index 738e112..590c6f8 100644
+--- a/model/backbone.py
++++ b/model/backbone.py
+@@ -1,3 +1,5 @@
++import os
++
+ import torch.nn as nn
+ 
+ from .hrnetv2.hrnet_ocr import HighResolutionNet
+@@ -65,9 +67,12 @@ class HRNetV2(nn.Module):
+             downsize_in_channels = ocr * 2 if self.ocr_on else sum(hrnet_cat_channels)
+             self.downsize = MaxPoolDownSize(downsize_in_channels, pyramid_channels, pyramid_channels, pyramid_depth)
+ 
+-        if pretained:
+-            self.load_pretrained_weights(
+-                r".\pretrained_models/hrnetv2_w18_imagenet_pretrained.pth")
++        # The ImageNet initialisation is only useful for training: the harmonization
++        # checkpoints (e.g. Resolution_RAW_iHarmony4.pth) contain the full HRNet weights.
++        # Its path is read from INR_HRNET_PRETRAINED; when unset, it is skipped.
++        hrnet_pretrained = os.environ.get("INR_HRNET_PRETRAINED", "")
++        if pretained and hrnet_pretrained:
++            self.load_pretrained_weights(hrnet_pretrained)
+ 
+         self.output_resolution = (opt.input_size // 8) ** 2
+ 
+diff --git a/model/base/conv_autoencoder.py b/model/base/conv_autoencoder.py
+index bc30b98..564dad4 100644
+--- a/model/base/conv_autoencoder.py
++++ b/model/base/conv_autoencoder.py
+@@ -8,8 +8,8 @@ import math
+ from .basic_blocks import ConvBlock, lineParams, convParams
+ from .ops import MaskedChannelAttention, FeaturesConnector
+ from .ops import PosEncodingNeRF, INRGAN_embed, RandomFourier, CIPS_embed
+-from utils import misc
+-from utils.misc import lin2img
++import misc
++from misc import lin2img
+ from ..lut_transformation_net import build_lut_transform
+ 
+ 
+diff --git a/model/hrnetv2/hrnet_ocr.py b/model/hrnetv2/hrnet_ocr.py
+index c01a2c1..b8da415 100644
+--- a/model/hrnetv2/hrnet_ocr.py
++++ b/model/hrnetv2/hrnet_ocr.py
+@@ -209,7 +209,7 @@ class HighResolutionNet(nn.Module):
+             num_blocks=4 * [num_blocks], num_channels=num_channels)
+ 
+         if self.ocr_on:
+-            last_inp_channels = np.int(np.sum(pre_stage_channels))
++            last_inp_channels = np.int32(np.sum(pre_stage_channels))
+             ocr_mid_channels = 2 * ocr_width
+             ocr_key_channels = ocr_width
+ 
+diff --git a/model/lut_transformation_net.py b/model/lut_transformation_net.py
+index f119bc1..4facf15 100644
+--- a/model/lut_transformation_net.py
++++ b/model/lut_transformation_net.py
+@@ -2,7 +2,7 @@ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+ 
+-from utils.misc import normalize
++from misc import normalize
+ 
+ 
+ class build_lut_transform(nn.Module):
+diff --git a/processing.py b/processing.py
+index 5d7bc6a..5ead5fb 100644
+--- a/processing.py
++++ b/processing.py
+@@ -5,7 +5,8 @@ import datetime
+ import torch
+ import torchvision
+ 
+-from utils import misc, metrics
++import misc
++from utils import metrics
+ 
+ best_psnr = 0
+ 
+diff --git a/train.py b/train.py
+index 856c188..1e3735d 100644
+--- a/train.py
++++ b/train.py
+@@ -10,7 +10,8 @@ from torch.utils.data import DataLoader
+ from torch.optim import lr_scheduler
+ 
+ import processing
+-from utils import build_loss, misc
++import misc
++from utils import build_loss
+ from model.build_model import build_model
+ from datasets.build_dataset import dataset_generator
+ 

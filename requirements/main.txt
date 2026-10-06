@@ -1,0 +1,67 @@
+# Main WonderZoom environment (wz-main): generation server and in-process models. Python 3.10.
+# Versions are pinned to the environment the release was developed and tested with.
+#
+# Install order (scripts/install_env_main.sh does all of this):
+#   1. conda env create -f envs/wz-main.yml          # compilers + CUDA 12.4 toolkit
+#   2. pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
+#   3. pip install -r requirements/main.txt
+#   4. CUDA extensions with --no-build-isolation: pytorch3d (pin in third_party/pins.env),
+#      submodules/depth-diff-gaussian-rasterization-min, submodules/simple-knn
+#   5. pip install --no-deps -e ./RepViT/sam
+# pytorch3d and the CUDA extensions are not listed here because their setup.py imports torch,
+# which fails under pip's default build isolation.
+
+# --- Server -------------------------------------------------------------------------------
+flask==3.1.0
+flask-cors==5.0.1
+flask-socketio==5.5.1
+python-socketio==5.12.1
+python-engineio==4.11.2
+simple-websocket==1.1.0
+Werkzeug==3.1.3
+websocket-client==1.9.0
+requests==2.32.3
+
+# --- Models -------------------------------------------------------------------------------
+diffusers==0.31.0
+transformers==4.37.2
+tokenizers==0.15.2
+accelerate==1.1.0
+huggingface-hub==0.33.0
+safetensors==0.5.3
+# repvit_sam (RepViT/sam) needs timm
+timm==1.0.19
+
+# --- Geometry, images, video --------------------------------------------------------------
+omegaconf==2.3.0
+einops==0.8.1
+kornia==0.8.0
+kornia_rs==0.1.8
+opencv-python==4.11.0.86
+pillow==10.4.0
+numpy==1.24.4
+scipy==1.15.2
+# Only skimage.measure.block_reduce is used; 0.21.0 is the oldest release with a cp310 wheel.
+scikit-image==0.21.0
+matplotlib==3.10.1
+tqdm==4.67.1
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+# PyAV backs torchvision.io.write_video (the rough / mask / zoom preview videos of every camera
+# move and zoom-in). torchvision 0.19 sets frame.pict_type = "NONE", which PyAV >= 14 rejects.
+av==13.1.0
+plyfile==1.1
+decord==0.6.0
+# pytorch3d runtime dependency
+iopath==0.1.10
+# EasternJournalist/utils3d at the commit MoGe v1 and models/vdm_model.py were written against.
+# Keep in sync with UTILS3D_COMMIT in third_party/pins.env. (PyPI 'utils3d' is a different project.)
+utils3d @ git+https://github.com/EasternJournalist/utils3d.git@3913c65d81e05e47b9f367250cf8c0f7462a0900
+
+# --- Transitive pins that keep the resolver on numpy 1.24 ----------------------------------
+contourpy==1.3.1
+tifffile==2025.3.13
+PyWavelets==1.8.0
+# utils3d dependencies
+moderngl==5.12.0
+glcontext==3.0.0

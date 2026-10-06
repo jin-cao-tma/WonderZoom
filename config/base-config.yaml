@@ -1,57 +1,96 @@
+# WonderZoom base configuration.
+#
+# run.py merges a scene config on top of this file (the scene config wins):
+#     python run.py --example_config config/more_examples/street.yaml
+#     python run.py --image my_photo.jpg [--name my_scene]      # uses config/custom_template.yaml
+# Every key below is read by the code; the values are the effective defaults (the paper settings).
+# Model services, GPUs and checkpoint paths are configured in config/services.yaml.
+# Note: generate_orbit_cameras_code is executed as Python code; only run configs you trust.
+
+# ---------------------------------------------------------------------------------------------
+# Input and session
+# ---------------------------------------------------------------------------------------------
+image_filepath: null    # input image, relative to the repository root (run.py --image sets it)
+example_name: null      # session name -> runs/<example_name>/<YYYYmmdd-HHMMSS>/ (default: image file stem)
+seed: 1
 device: cuda
 
-negative_inpainting_prompt: "collage, text, writings, signs, text, white border, photograph border, artifacts, blur, blurry, foggy, fog, person, bad quality, distortions, distorted image, watermark, signature, fisheye look"
-num_frames: 1
-frames: 5
-seed: 2
-point_size_min_ratio: 1
-# choice: [MiDaS, ZoeDepth, MariGold]
-depth_model: moge
-camera_speed: 0.001
-rotation_range: 0.37
-point_size: 0.003
-#camera parameters
-init_focal_length: 1024
-sky_point_size_multiplier: 1.5
-#decoder finetuning parameters
-finetune_depth_decoder: False
-decoder_learning_rate: 0.0001
-num_finetune_decoder_steps: 100
-num_finetune_decoder_steps_interp: 30
-preservation_weight: 10
-num_finetune_depth_model_steps: 50
-#inpainting parameters
-stable_diffusion_checkpoint: "stabilityai/stable-diffusion-2-inpainting" #"dreambooth_models/mountains-sks-1500"
-inpainting_resolution_interp: [480,720]
-inpainting_resolution_gen: [480,720]
+# Generation resolution. The input image is resized and center-cropped to gen_W x gen_H, so a
+# landscape 3:2 image works best. Both values must be multiples of 16 (Chain-of-Zoom).
+gen_H: 720
+gen_W: 1088
 
-#depth finetuning parameters
-depth_conditioning: True
-depth_model_learning_rate: 1e-6
+# Render-only viewer (run_render_only.py); generation ignores these keys.
+pth_path: null          # Gaussian scene to load (run_render_only.py --pth_path overrides it)
+# orig_H / orig_W: render resolution of that scene (default: gen_H / gen_W)
 
-save_fps: 30
-skip_interp: False
-skip_gen: False
-kf2_upsample_coef: 4
-fg_depth_range: 0.015
+# ---------------------------------------------------------------------------------------------
+# Camera and scene representation
+# ---------------------------------------------------------------------------------------------
+init_focal_length: 1024 # focal length (px) of the input view; the UI zooms in relative to it
+depth_model: moge       # MoGe is always used for single-image depth
 depth_shift: 0.001
-
 sky_hard_depth: 0.02
-sky_erode_kernel_size: 0
-ground_erode_kernel_size: 3
+point_size: 0.003
+point_size_min_ratio: 1
+sky_point_size_multiplier: 1.5
+initial_iterations: 300 # Gaussian optimisation steps for the first scene
+
+# Online MoGe fine-tuning during zoom-in (0 steps disables it).
+depth_model_learning_rate: 1e-6
+num_finetune_depth_model_steps: 100
+
+# GeometryCrafter video depth for Gen3C camera moves.
+geometrycrafter:
+  decode_chunk_size: 8
+  # null = auto: true under the exclusive GPU policy (keeps intermediates in host RAM; the results
+  # match up to floating-point differences), false otherwise.
+  low_memory_usage: null
+
+# ---------------------------------------------------------------------------------------------
+# Per-scene tuning (models/vdm_model.py); see config/more_examples for tuned values
+# ---------------------------------------------------------------------------------------------
+amount: 2
+use_tilt: true
+use_scaling_pull: true              # pull new depth towards the scene with RepViT-SAM segments
+use_grad_single: false
+use_grad_single_mask: false
+grad_magnitude_threshold_single: 10
+use_grad_rewrite: false
+rewrite_grad_thra: [5, 5]
+# Pull GroundedSAM foreground objects to their median depth when a zoom-in rewrites the scene.
+# Needs the object-insertion stack (config/services.yaml objects.*) and foreground_words or GPT.
+pull_foreground_depth_rewrite: false
+
+# Camera path of the orbit previews (Space, Ctrl+Shift+Space, Ctrl+Alt+Space): Python source that
+# defines generate_orbit_cameras(center_camera, gaussians, opt, xyz_scale, n_frames=49, ...).
+# null uses the default in run.py; the example configs carry per-scene versions.
+generate_orbit_cameras_code: null
+
+# ---------------------------------------------------------------------------------------------
+# Gen3C (camera moves and high-quality orbit views)
+# ---------------------------------------------------------------------------------------------
+gen3c_prompt: 'None'    # text prompt; the paper runs sent the literal string 'None'
+# gen3c_prompt_hq: prompt for the high-quality orbit views (Ctrl+Shift+Space); default gen3c_prompt
+gen3c_steps_move: 18    # diffusion steps for camera moves
+gen3c_steps_hq: 10      # diffusion steps for the high-quality orbit views
+
+# ---------------------------------------------------------------------------------------------
+# Optional object insertion and GPT-4o prompts (config/services.yaml features.*)
+# ---------------------------------------------------------------------------------------------
+use_harmol: true        # harmonize inserted objects with INR-Harmonization (skipped if not installed)
+# Used without GPT-4o (no OPENAI_API_KEY): '{object}' is replaced by the object prompt typed in the UI.
+object_edit_prompt_template: '{object} is on the ground'
+# Foreground objects and background description of the scene, for pull_foreground_depth_rewrite
+# and background completion (P). Empty: ask GPT-4o, or skip with a warning when GPT is off.
+foreground_words: []
+background_prompt: ''
+scene_name: null        # last-resort foreground word if the GPT-4o extraction fails
+
+# ---------------------------------------------------------------------------------------------
+# Required by the FrameSyn base class (models/models_vdm.py); generation does not use the values
+# ---------------------------------------------------------------------------------------------
+negative_inpainting_prompt: "collage, text, writings, signs, text, white border, photograph border, artifacts, blur, blurry, foggy, fog, person, bad quality, distortions, distorted image, watermark, signature, fisheye look"
+preservation_weight: 10
+decoder_learning_rate: 0.0001
 dilate_mask_decoder_ft: 3
-
-regenerate_times: 3
-debug: False
-
-gen_sky: False
-gen_layer: True
-
-camera_speed_multiplier_rotation: 0.3
-api_key: ""  # Set your OpenAI API key here or via OPENAI_API_KEY environment variable
-gen_sky_image: False
-
-use_compile: False
-rotation_path: [2, 2, 2, 2, 2, 2, 2, 2, -2, -2, -2, -2, -2, -2, -2, -2]
-num_scenes: 16
-use_free_lunch: False

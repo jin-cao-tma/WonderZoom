@@ -1,0 +1,24 @@
+# Step1X-Edit worker environment (wz-step1x). Python 3.10 (>= 3.10 is required).
+# Only needed for object insertion.
+#
+# Install order (scripts/install_env_step1x.sh does all of this):
+#   1. pip install torch==2.7.1 torchvision==0.22.1      # PyPI default wheels, CUDA 12.6 (driver >= 560)
+#   2. pip install -r requirements/step1x.txt
+#   3. pip install <FLASH_ATTN_WHEEL_URL from third_party/pins.env>
+# These pins are the upstream inference + parallel requirements of Step1X-Edit @4174b28,
+# resolved to the versions of the working environment (without gradio).
+liger_kernel==0.5.4
+einops==0.8.1
+transformers==4.51.3
+tokenizers==0.21.2
+qwen_vl_utils==0.0.10
+safetensors==0.4.5
+pillow==11.1.0
+numpy==2.2.6
+huggingface-hub==0.33.2
+accelerate==1.8.1
+xfuser==0.4.3.post3
+yunchang==0.6.3.post1
+DistVAE==0.0.0b5
+diffusers==0.34.0
+opencv-python==4.12.0.88

@@ -1,25 +1,36 @@
+import os
 
 import torch
 import numpy as np
 from PIL import Image
 import cv2
 
-# GroundingDINO imports
-import torch
-import numpy as np
-from PIL import Image
-import cv2
-import sys 
-sys.path.append('./Grounded-Segment-Anything/')
-# GroundingDINO imports
-import GroundingDINO.groundingdino.datasets.transforms as T
-from GroundingDINO.groundingdino.models import build_model
-from GroundingDINO.groundingdino.util.slconfig import SLConfig
-from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
+# GroundingDINO imports (the pip-installed 'groundingdino' package from Grounded-Segment-Anything)
+import groundingdino
+import groundingdino.datasets.transforms as T
+from groundingdino.models import build_model
+from groundingdino.util.slconfig import SLConfig
+from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 
 # SAM imports
 from segment_anything import build_sam, SamPredictor
 import PIL 
+
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def default_groundingdino_config():
+    """GroundingDINO_SwinT_OGC.py shipped inside the installed groundingdino package."""
+    return os.path.join(os.path.dirname(groundingdino.__file__), "config", "GroundingDINO_SwinT_OGC.py")
+
+
+def default_objects_checkpoint(filename):
+    """Default location of an object-stack checkpoint: $WZ_CKPT_DIR/objects/<filename>."""
+    ckpt_dir = os.environ.get("WZ_CKPT_DIR") or os.path.join(_REPO_ROOT, "checkpoints")
+    if not os.path.isabs(ckpt_dir):
+        ckpt_dir = os.path.join(_REPO_ROOT, ckpt_dir)
+    return os.path.join(ckpt_dir, "objects", filename)
 
 
 class GroundedSAMSegmentationModel:
@@ -29,20 +40,37 @@ class GroundedSAMSegmentationModel:
     """
 
     def __init__(self,
-                 grounding_config_path='./Grounded-Segment-Anything/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py',
-                 grounding_checkpoint_path='./Grounded-Segment-Anything/groundingdino_swint_ogc.pth',
-                 sam_checkpoint_path='./Grounded-Segment-Anything/sam_vit_h_4b8939.pth',
+                 grounding_config_path=None,
+                 grounding_checkpoint_path=None,
+                 sam_checkpoint_path=None,
                  device='cuda'):
         """
         Initialize the segmentation model
 
         Args:
-            grounding_config_path: GroundingDINO config file path
-            grounding_checkpoint_path: GroundingDINO model weights path
-            sam_checkpoint_path: SAM model weights path
+            grounding_config_path: GroundingDINO config file path (config objects.groundingdino_config).
+                None uses the config shipped with the installed groundingdino package.
+            grounding_checkpoint_path: GroundingDINO model weights path (config objects.groundingdino_checkpoint).
+                None uses $WZ_CKPT_DIR/objects/groundingdino_swint_ogc.pth.
+            sam_checkpoint_path: SAM model weights path (config objects.sam_checkpoint).
+                None uses $WZ_CKPT_DIR/objects/sam_vit_h_4b8939.pth.
             device: Device type ('cuda' or 'cpu')
         """
         self.device = device
+        if grounding_config_path is None:
+            grounding_config_path = default_groundingdino_config()
+        if grounding_checkpoint_path is None:
+            grounding_checkpoint_path = default_objects_checkpoint("groundingdino_swint_ogc.pth")
+        if sam_checkpoint_path is None:
+            sam_checkpoint_path = default_objects_checkpoint("sam_vit_h_4b8939.pth")
+        for what, path in (("GroundingDINO config", grounding_config_path),
+                           ("GroundingDINO checkpoint", grounding_checkpoint_path),
+                           ("SAM checkpoint", sam_checkpoint_path)):
+            if not os.path.isfile(str(path)):
+                raise FileNotFoundError(
+                    f"{what} not found: {path}. Download the object-insertion checkpoints with "
+                    "'bash scripts/download_checkpoints.sh --objects' or set the objects.* paths in config/services.yaml."
+                )
         
         # Model initialization flags
         self.grounding_model = None
@@ -125,8 +153,9 @@ class GroundedSAMSegmentationModel:
                 for m in result['masks']:
                     masks.append(m.squeeze().bool())
         if not masks:
-            # No masks found, return all False
-            return torch.zeros((image.height, image.width), dtype=torch.bool)
+            # No masks found: all-False masks, same 3-tuple shape as the normal return
+            empty_mask = torch.zeros((image.height, image.width), dtype=torch.bool)
+            return empty_mask, empty_mask.clone(), []
         # Merge all masks (logical OR)
         combined_mask = masks[0].clone()
         masks = [mask for mask in masks if mask.float().mean() > 0.003]
@@ -301,10 +330,6 @@ class GroundedSAMSegmentationModel:
 
 
 
-
-import torch
-import numpy as np
-from PIL import Image
 from typing import Union, Optional
 from diffusers import StableDiffusionInpaintPipeline, DDIMScheduler
 from diffusers.models.attention_processor import AttnProcessor2_0
@@ -312,29 +337,37 @@ from diffusers.models.attention_processor import AttnProcessor2_0
 # Global model instance
 _inpaint_pipeline = None
 
-def load_inpaint_model(model_path: str = "stabilityai/stable-diffusion-2-inpainting",
+def load_inpaint_model(model_id: str = "sd2-community/stable-diffusion-2-inpainting",
                       device: str = "cuda",
-                      torch_dtype: torch.dtype = torch.bfloat16) -> bool:
+                      torch_dtype: torch.dtype = torch.bfloat16,
+                      variant: Optional[str] = "fp16",
+                      model_path: Optional[str] = None) -> bool:
     """
     Load the Stable Diffusion Inpainting model.
     
     Args:
-        model_path: Path to the model checkpoint or HuggingFace model name
+        model_id: HuggingFace model id or local directory (config objects.inpaint_model).
+            stabilityai/stable-diffusion-2-inpainting is no longer on the Hub; sd2-community mirrors it.
         device: Device to run the model on ("cuda" or "cpu")
         torch_dtype: Data type for the model
+        variant: weight variant to download (fp16 halves the download; None = full-precision weights)
+        model_path: deprecated alias of model_id
         
     Returns:
         bool: True if model loaded successfully, False otherwise
     """
     global _inpaint_pipeline
     
+    if model_path is not None:
+        model_id = model_path
     try:
-        print(f"🔄 Loading inpainting model from: {model_path}")
+        print(f"Loading inpainting model from: {model_id}")
         
         _inpaint_pipeline = StableDiffusionInpaintPipeline.from_pretrained(
-            model_path,
+            model_id,
             safety_checker=None,
             torch_dtype=torch_dtype,
+            variant=variant,
         ).to(device)
         
         # Configure scheduler
@@ -344,11 +377,11 @@ def load_inpaint_model(model_path: str = "stabilityai/stable-diffusion-2-inpaint
         _inpaint_pipeline.unet.set_attn_processor(AttnProcessor2_0())
         _inpaint_pipeline.vae.set_attn_processor(AttnProcessor2_0())
         
-        print("✅ Inpainting model loaded successfully!")
+        print("Inpainting model loaded.")
         return True
         
     except Exception as e:
-        print(f"❌ Failed to load inpainting model: {e}")
+        print(f"Failed to load inpainting model: {e}")
         _inpaint_pipeline = None
         return False
 

@@ -1,0 +1,141 @@
+# WonderZoom model services: Gen3C (camera moves), Chain-of-Zoom (zoom-in) and Step1X-Edit
+# (optional object insertion). Each service runs as a persistent worker process inside its own
+# Python environment; see services/ and docs/INSTALL.md.
+#
+# Relative paths are relative to the repository root. The install scripts write the interpreter
+# paths into config/services.local.yaml (gitignored), which is merged on top of this file:
+#     main: {python: /abs/envs/wz-main/bin/python}
+#     services: {gen3c: {python: ...}, coz: {python: ...}, step1x: {python: ...}}
+# Environment overrides: WZ_GPU_POLICY, WZ_CKPT_DIR, WZ_EXTERNAL_DIR, WZ_GEN3C_PYTHON, WZ_COZ_PYTHON,
+# WZ_STEP1X_PYTHON. To keep the third-party clones outside the repository, export the same absolute
+# WZ_EXTERNAL_DIR for the install scripts and for run.py / scripts/check_install.py.
+# run.py flags --gpu_policy / --main_gpu / --no_services override the corresponding keys.
+
+gpu:
+  # resident:  every service keeps its weights on its GPU (multi-GPU machines).
+  # exclusive: tenants that share a GPU (main models, gen3c, coz, step1x) take turns; the idle ones
+  #            are parked in host RAM (needs >= 192 GB of RAM on a single 46-48 GB GPU).
+  # auto:      exclusive on every GPU whose tenants' resident_gb sum exceeds its memory - reserve_gb.
+  policy: auto
+  main_device: 0                       # logical GPU index of the main process
+  pause_render_during_services: true   # pause frame streaming while a worker uses the main GPU
+  render_pause_timeout_s: 10           # wait this long for the frame being drawn (svc.render_frame) before the swap
+  reserve_gb: 4
+  main_resident_gb: 16                 # main-process models + scene, for the auto policy
+  restore_main_after_service: false    # true: move the main models back right after each service call
+
+# Logical GPU indices (gpu.main_device, services.*.device) index the GPUs visible to run.py,
+# i.e. its original CUDA_VISIBLE_DEVICES (all GPUs when unset).
+#   1 GPU >= 46 GB:   everything on 0 (exclusive is chosen automatically).
+#   2 GPUs >= 48 GB:  main_device 0; gen3c/coz/step1x on 1.
+#   4 GPUs >= 48 GB:  main 0, gen3c 1, coz 2, step1x 3 (resident).
+
+paths:
+  external_dir: external                             # pinned third-party clones (scripts/setup_third_party.sh); WZ_EXTERNAL_DIR overrides
+  checkpoints_dir: ${oc.env:WZ_CKPT_DIR,checkpoints} # scripts/download_checkpoints.sh
+  runs_dir: runs                                     # runs/<example_name>/<YYYYmmdd-HHMMSS>/
+
+main:
+  python: null
+
+services:
+  gen3c:
+    enabled: true
+    python: null                       # wz-gen3c interpreter (scripts/register_env.py)
+    repo_dir: ${paths.external_dir}/GEN3C
+    device: 0
+    # auto: <env>/targets/x86_64-linux of the conda CUDA packages (Transformer Engine needs NVRTC),
+    # else an inherited CUDA_HOME with the same NVRTC major, else the env prefix (slow: TE globs it
+    # recursively at import time).
+    cuda_home: auto
+    hf_hub_offline: true               # all weights are local; never fall back to downloading T5-11B
+    init_timeout_s: 3600
+    request_timeout_s: 3600
+    park_timeout_s: 900
+    resident_gb: 36                    # DiT bf16 + T5-11B fp32 + tokenizer
+    checkpoint_dir: ${paths.checkpoints_dir}/gen3c     # Gen3C-Cosmos-7B/, Cosmos-Tokenize1-CV8x8x8-720p/, google-t5/t5-11b/
+    checkpoint_name: Gen3C-Cosmos-7B
+    # Paper settings (do not change unless you know why).
+    guidance: 1.0
+    height: 704
+    width: 1280
+    fps: 24
+    num_video_frames: 121
+    seed: 1                            # seeds every RNG once at start-up
+    request_seed: null                 # int: reseed before every request (default: process-global RNG)
+    legacy_none_prompt: true           # prompt None is sent as the literal 'None', like the paper-era service (false: '')
+    # Default for requests without num_steps. Paper calls always pass it (18 camera moves, 10 HQ
+    # views); the paper-era service's own default was 3, so this one deliberately differs.
+    num_steps: 18
+    video_quality: 5
+    minmax_normalize_frames: true      # paper-era min-max stretch of the saved frames
+    # Safety guardrail (Cosmos-Guardrail1 + Llama-Guard-3-8B). Disabled by default, as in the paper
+    # runs and GEN3C's GUI server. The NVIDIA Open Model License of the Gen3C weights says your
+    # rights under it terminate if you disable the model's safety guardrails: read
+    # THIRD_PARTY_LICENSES.md. false = run the guardrail; download its models first (docs/INSTALL.md,
+    # "Gen3C guardrail"). It can block prompts or videos and blurs faces, so results can differ.
+    disable_guardrail: true
+    # Guardrail on only: load the guardrail models for each check and free them afterwards
+    # (false: keep them on the GPU; they are not parked under the exclusive policy).
+    offload_guardrail_models: true
+    # Memory.
+    cache_text_embeddings: true        # T5 runs once per distinct prompt
+    park_text_encoder: auto            # keep T5 in host RAM between encodings (auto = exclusive policy)
+    park_tokenizer: false
+    offload_network: false             # reload the 29 GB DiT from disk for every request (last resort)
+    offload_tokenizer: false
+    offload_text_encoder_model: false  # reload the 45 GB T5 checkpoint for every new prompt
+
+  coz:
+    enabled: true
+    python: null                       # wz-coz interpreter
+    repo_dir: ${paths.external_dir}/Chain-of-Zoom
+    device: 0
+    hf_hub_offline: false              # set true once SD3 and Qwen are in the HF cache
+    init_timeout_s: 2400
+    request_timeout_s: 600
+    park_timeout_s: 900
+    resident_gb: 28
+    lora_path: ${services.coz.repo_dir}/ckpt/SR_LoRA/model_20001.pkl
+    vae_path: ${services.coz.repo_dir}/ckpt/SR_VAE/vae_encoder_20001.pt
+    sd3_model: stabilityai/stable-diffusion-3-medium-diffusers   # gated: accept the license on HF
+    vlm_model: Qwen/Qwen2.5-VL-3B-Instruct
+    lora_rank: 4
+    seed: null                         # null: random.randint(1, 999999) per call from run.py's seeded `random` (paper behaviour)
+    pad_to_multiple_of_16: true        # reflect-pad other sizes (no-op at 720x1088 and 480x720)
+
+  step1x:
+    enabled: true                      # only used for object insertion
+    python: null                       # wz-step1x interpreter
+    repo_dir: ${paths.external_dir}/Step1X-Edit
+    device: 0
+    hf_hub_offline: false
+    init_timeout_s: 1800
+    request_timeout_s: 900
+    park_timeout_s: 900
+    resident_gb: 42
+    checkpoint_dir: ${paths.checkpoints_dir}/step1x    # step1x-edit-i1258.safetensors, vae.safetensors
+    qwen_model: Qwen/Qwen2.5-VL-7B-Instruct
+    # auto: false (paper placement) unless resident_gb does not fit: next to the other resident
+    # tenants (resident policy), or in the GPU minus gpu.reserve_gb (exclusive policy, where the
+    # parked tenants keep their CUDA contexts). Offloading moves Qwen2.5-VL and the DiT to the GPU
+    # and back on every edit. Set false to force the paper placement.
+    offload: auto
+    quantized: false                   # on-the-fly FP8 (float8_e4m3fn) cast of the DiT
+
+# Optional features of the main process (object insertion stack).
+features:
+  object_insertion: auto               # true | false | auto (step1x service + GroundedSAM installed)
+  harmonization: auto                  # INR-Harmonization (auto = installed and checkpoint present)
+  gpt: auto                            # GPT-4o prompts (auto = OPENAI_API_KEY is set)
+
+objects:
+  groundingdino_checkpoint: ${paths.checkpoints_dir}/objects/groundingdino_swint_ogc.pth
+  groundingdino_config: null           # null = GroundingDINO_SwinT_OGC.py of the installed package
+  sam_checkpoint: ${paths.checkpoints_dir}/objects/sam_vit_h_4b8939.pth
+  inr_repo_dir: ${paths.external_dir}/INR-Harmonization
+  inr_checkpoint: ${paths.checkpoints_dir}/objects/Resolution_RAW_iHarmony4.pth
+  inpaint_model: sd2-community/stable-diffusion-2-inpainting
+
+main_models:
+  repvit_sam_checkpoint: ${paths.checkpoints_dir}/repvit_sam.pt

@@ -1,0 +1,22 @@
+# Conda toolchain for the main WonderZoom environment (wz-main).
+#
+#   conda env create -f envs/wz-main.yml                  # or: -n NAME / -p PREFIX
+#
+# It only provides Python, pip and a self-contained build toolchain (GCC 12.4 + CUDA 12.4
+# nvcc/toolkit from conda-forge), so the CUDA extensions do not depend on the host compiler
+# or a system CUDA install. Python packages are installed afterwards; run
+# `bash scripts/install_env_main.sh`, which creates this env and does every remaining step.
+# The Gen3C env uses external/GEN3C/cosmos-predict1.yaml instead (scripts/install_env_gen3c.sh).
+name: wz-main
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.10
+  - pip=25.0
+  - cmake
+  - ninja
+  - gcc=12.4.0
+  - gxx=12.4.0
+  - cuda-nvcc=12.4
+  - cuda-toolkit=12.4

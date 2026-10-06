@@ -1,21 +1,19 @@
-runs_dir: output/animation_lakeside_1
-example_name: animation_lakeside_1
+example_name: sunflower
 image_filepath: example_images/sunf.png
+seed: 1
+# generation resolution (multiples of 16)
+gen_H: 720
+gen_W: 1088
+# Gen3C text prompt (the paper runs sent the literal string 'None')
+gen3c_prompt: 'None'
+
+# render-only viewer (run_render_only.py): released scene and its render resolution
 pth_path: ./gaussian/gau_ladybug1_complete1080.pth
 orig_H: 720
 orig_W: 1080
-seed: 1
-# enable guided depth diffusion
-depth_conditioning: True
-
-# use gpt to generate scene description
-use_gpt: False
-debug: True
 
 # depth model and camera/depth parameters
 depth_model: moge
-camera_speed: 0.001
-fg_depth_range: 0.015
 depth_shift: 0.001
 sky_hard_depth: 0.02
 init_focal_length: 1024
@@ -28,9 +26,11 @@ use_grad_rewrite: True
 rewrite_grad_thra: [1.5,2]
 use_harmol: False
 pull_foreground_depth_rewrite: True
+# foreground objects for pull_foreground_depth_rewrite (used instead of GPT-4o extraction)
+foreground_words: [sunflower]
 use_tilt: True
 
-# orbit camera function configuration - street view dedicated function
+# camera path of the orbit previews, tuned for this scene (Python source executed by run.py)
 generate_orbit_cameras_code: |
   def generate_orbit_cameras(center_camera, gaussians, opt, xyz_scale, n_frames=49, radius_factor=8e-4, height_variation=0e-4, n_spirals=1, transition_frames=9):
       """Generate cameras in a spiral trajectory for better 3D perception

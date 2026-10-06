@@ -1,0 +1,15 @@
+# WonderZoom checkpoint files that do not come from the Hugging Face Hub.
+# Paths are relative to the checkpoints directory (checkpoints/ or $WZ_CKPT_DIR).
+# Each entry is a metadata comment followed by a sha256sum line:
+#   # size=<bytes> group=<download group> url=<source URL, or gdrive:<file id>>
+#   <sha256>  <path>
+# scripts/download_checkpoints.sh reads this file. To verify by hand:
+#   (cd checkpoints && sha256sum -c ../third_party/checksums.sha256)
+# size=110032539 group=core url=https://github.com/THU-MIG/RepViT/releases/download/v1.0/repvit_sam.pt
+1fd2867cf669e6d89b1c91d0eb883d83ef4bcc590143dd2ca35e2705b21a4f2f  repvit_sam.pt
+# size=693997677 group=objects url=https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth
+3b3ca2563c77c69f651d7bd133e97139c186df06231157a64c507099c52bc799  objects/groundingdino_swint_ogc.pth
+# size=2564550879 group=objects url=https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+a7bf3b02f3ebf1267aba913ff637d9a2d5c33d3173bb679e46d9f338c26f262e  objects/sam_vit_h_4b8939.pth
+# size=477235439 group=objects url=gdrive:1O9faWNk54mIzMaGZ1tmgm0EJpH20a-Fl
+c5475d7a2a77260f8c9503b02e46a7b456bd1a7a7d7b0fc3c85ef534b473eef8  objects/Resolution_RAW_iHarmony4.pth

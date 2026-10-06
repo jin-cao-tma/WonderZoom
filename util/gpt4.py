@@ -1,10 +1,63 @@
-from openai import OpenAI
 import base64
 import os
 from tqdm import tqdm
 import time
 import random
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+
+# The OpenAI client is created lazily on the first API call. Without OPENAI_API_KEY (or with
+# features.gpt disabled through configure(enabled=False)) every helper returns its fallback at
+# once instead of retrying against the API.
+_client = None
+_settings = {
+    "enabled": None,  # None = auto (enabled when OPENAI_API_KEY is set)
+    "foreground_words": None,
+    "background_prompt": None,
+    "object_edit_prompt_template": "{object} is on the ground",
+}
+_warned_unavailable = False
+
+
+def configure(enabled=None, foreground_words=None, background_prompt=None, object_edit_prompt_template=None):
+    """Set module-wide options (run.py calls this once from the config).
+
+    Args:
+        enabled: True / False / None ('auto': use GPT when OPENAI_API_KEY is set). Config features.gpt.
+        foreground_words: fallback foreground words for extract_foreground_background. Config foreground_words.
+        background_prompt: fallback background description. Config background_prompt.
+        object_edit_prompt_template: fallback edit prompt, '{object}' is replaced by the object name.
+            Config object_edit_prompt_template.
+    """
+    if isinstance(enabled, str):
+        enabled = {"auto": None, "true": True, "false": False}.get(enabled.strip().lower(), None)
+    _settings["enabled"] = enabled
+    if foreground_words is not None:
+        _settings["foreground_words"] = list(foreground_words)
+    if background_prompt is not None:
+        _settings["background_prompt"] = background_prompt
+    if object_edit_prompt_template:
+        _settings["object_edit_prompt_template"] = object_edit_prompt_template
+
+
+def gpt_available():
+    """True when GPT calls are enabled and an API key is present."""
+    global _warned_unavailable
+    if _settings["enabled"] is False:
+        return False
+    if not os.environ.get("OPENAI_API_KEY"):
+        if not _warned_unavailable:
+            print("OPENAI_API_KEY is not set: GPT-4o prompts are disabled, using the config fallbacks.")
+            _warned_unavailable = True
+        return False
+    return True
+
+
+def get_client():
+    """Create the OpenAI client on first use."""
+    global _client
+    if _client is None:
+        from openai import OpenAI
+        _client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+    return _client
 
 def encode_image_to_base64(image_path):
     with open(image_path, "rb") as f:
@@ -22,6 +75,10 @@ def safe_openai_call(messages, max_retries=5, base_delay=2, short_length=100):
     Returns:
         str: Generated content, or fallback content if failed
     """
+    if not gpt_available():
+        is_zoom = any("zoom" in str(msg).lower() for msg in messages)
+        return generate_fallback_prompt(is_zoom_in=is_zoom)
+    client = get_client()
     for attempt in range(max_retries):
         try:
             print(f"🔄 Attempting OpenAI API call (attempt {attempt + 1}/{max_retries})...")
@@ -437,9 +494,19 @@ def generate_edit_prompt(img_path, output_path, scene_name=None, short_length=2)
     Returns:
         str: The generated edit prompt
     """
-    import base64
-    import os
-    
+    if not gpt_available():
+        # Fast fallback without the API: config object_edit_prompt_template (default '{object} is on the ground')
+        template = _settings["object_edit_prompt_template"] or "{object} is on the ground"
+        res = template.replace("{object}", scene_name if scene_name else "object")
+        if output_path:
+            try:
+                with open(output_path, "w", encoding='utf-8') as f:
+                    f.write(res)
+            except Exception as e:
+                print(f"❌ Failed to save file: {e}")
+        print(f"Generated edit prompt (fallback): {res}")
+        return res
+
     # Read image and convert to base64 encoding
     base64_image = encode_image_to_base64(img_path)
 
@@ -521,7 +588,21 @@ Keep it simple and direct. Just identify what surface you see."""
     return res
 
 # ... existing code ...
-def extract_foreground_background(image_path, max_retries=5, short_length=10):
+def _foreground_background_fallback(scene_name=None, foreground_words=None, background_prompt=None):
+    """(config foreground_words or [scene_name], config background_prompt or '')."""
+    if foreground_words is None:
+        foreground_words = _settings["foreground_words"]
+    if background_prompt is None:
+        background_prompt = _settings["background_prompt"]
+    if foreground_words:
+        fg = list(foreground_words)
+    else:
+        fg = [scene_name] if scene_name else []
+    return fg, background_prompt or ""
+
+
+def extract_foreground_background(image_path, max_retries=5, short_length=10, scene_name=None,
+                                  foreground_words=None, background_prompt=None):
     """
     Use GPT-4 Vision to extract foreground objects (as a list of words) and a background description (as a sentence) from an image.
     The background description should not overlap with any foreground object.
@@ -531,13 +612,17 @@ def extract_foreground_background(image_path, max_retries=5, short_length=10):
         max_retries (int): Maximum number of retries for the API call
         short_length (int): Minimum length for response validation
 
+        scene_name, foreground_words, background_prompt: fallback used when GPT is unavailable or
+            fails (defaults come from configure()).
+
     Returns:
         tuple: (foreground_list, background_description)
             - foreground_list: list of strings (foreground object words)
             - background_description: string (background description sentence)
     """
+    if not gpt_available():
+        return _foreground_background_fallback(scene_name, foreground_words, background_prompt)
     import re
-    from difflib import get_close_matches
 
     def to_singular(word):
         """Convert English plural words to singular form using basic rules."""
@@ -631,7 +716,13 @@ def extract_foreground_background(image_path, max_retries=5, short_length=10):
             violation = False
             for word in foreground_list:
                 word_lower = word.lower()
-                # Check for exact word and its potential plural forms
+                # Check for exact word and its potential plural forms.
+                # NOTE (paper parity): r"\\b" is the paper-era pattern. As a regex it matches a literal
+                # backslash followed by 'b', not a word boundary, so this check never fires and the first
+                # parseable GPT answer is returned. It is kept on purpose: a real word-boundary check
+                # (r"\b") rejects answers whose background mentions a foreground word (e.g. 'trees') and,
+                # after max_retries, falls back to the config words (empty by default), which breaks
+                # get_3d_background / get_pure_background where the paper-era code used GPT's answer.
                 patterns = [
                     r"\\b" + re.escape(word_lower) + r"\\b",  # singular form
                     r"\\b" + re.escape(word_lower + 's') + r"\\b",  # simple plural
@@ -654,8 +745,8 @@ def extract_foreground_background(image_path, max_retries=5, short_length=10):
             if not violation:
                 return foreground_list, background_description
             # If violation, retry (up to max_retries)
-    # Fallback: return empty list and empty string
-    return [], ""
+    # Fallback: config foreground_words / background_prompt (empty list and empty string by default)
+    return _foreground_background_fallback(scene_name, foreground_words, background_prompt)
 
 
 if __name__ == "__main__":

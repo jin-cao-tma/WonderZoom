@@ -1,0 +1,31 @@
+# Scene config for your own image, used by
+#     python run.py --image path/to/photo.jpg [--name my_scene]
+# --image fills image_filepath and --name (default: the image file stem) fills example_name; the
+# session is written to runs/<example_name>/<YYYYmmdd-HHMMSS>/.
+# To keep tuned settings for a scene, copy this file, set image_filepath (relative to the
+# repository root) and example_name, and run python run.py --example_config <your copy>.
+# This file is merged on top of config/base-config.yaml, which documents every key and its default.
+#
+# Input: the image is resized and center-cropped to gen_W x gen_H (1088x720 by default), so a
+# landscape 3:2 image works best. Transparent PNGs are converted to RGB.
+
+example_name: null
+image_filepath: null
+seed: 1
+
+# generation resolution (multiples of 16)
+gen_H: 720
+gen_W: 1088
+# Gen3C text prompt (the paper runs sent the literal string 'None')
+gen3c_prompt: 'None'
+
+# Scene tuning; these are the values of most example scenes (e.g. more_examples/street.yaml).
+amount: 2                 # depth extent of inserted objects (larger = flatter)
+use_scaling_pull: False   # True: align new zoom-in depth to the scene per RepViT-SAM segment
+use_tilt: False           # True: fit a planar tilt of inserted objects to the scene depth
+use_harmol: True          # harmonize inserted objects (INR-Harmonization, if installed)
+
+# Optional object words for background completion (P) and pull_foreground_depth_rewrite when
+# GPT-4o is not available (no OPENAI_API_KEY), e.g.
+# foreground_words: [house, tree]
+# background_prompt: a grassy hill under a blue sky

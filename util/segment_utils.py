@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from PIL import Image
 import torch
@@ -123,24 +125,32 @@ def refine_disp_with_segments_2(disparity, segments, keep_threshold=10, return_r
         return refined_disparity
 
 
-def create_mask_generator():
-    from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
-    # sam_checkpoint = "sam_vit_h_4b8939.pth"
-    sam_checkpoint = "sam_vit_h_4b8939.pth"
-    sam = sam_model_registry["vit_h"](checkpoint=sam_checkpoint)
-    sam.to(device='cuda')
-    mask_generator = SamAutomaticMaskGenerator(
-        model=sam,
-        points_per_side=32,
-        pred_iou_thresh=0.86,
-        stability_score_thresh=0.92,
-        min_mask_region_area=100,  # Requires open-cv to run post-processing
-    )
-    return mask_generator
+def default_repvit_sam_checkpoint():
+    """Default RepViT-SAM checkpoint location: $WZ_CKPT_DIR/repvit_sam.pt, else <repo>/checkpoints/repvit_sam.pt."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ckpt_dir = os.environ.get("WZ_CKPT_DIR") or os.path.join(repo_root, "checkpoints")
+    if not os.path.isabs(ckpt_dir):
+        ckpt_dir = os.path.join(repo_root, ckpt_dir)
+    return os.path.join(ckpt_dir, "repvit_sam.pt")
 
-def create_mask_generator_repvit():
+
+def create_mask_generator_repvit(sam_checkpoint=None):
+    """Build the RepViT-SAM automatic mask generator.
+
+    Args:
+        sam_checkpoint: path to repvit_sam.pt (config main_models.repvit_sam_checkpoint).
+            None uses default_repvit_sam_checkpoint().
+    """
     from repvit_sam import SamAutomaticMaskGenerator, sam_model_registry
-    sam_checkpoint = "repvit_sam.pt"
+    if sam_checkpoint is None:
+        sam_checkpoint = default_repvit_sam_checkpoint()
+    sam_checkpoint = os.path.abspath(os.path.expanduser(str(sam_checkpoint)))
+    if not os.path.isfile(sam_checkpoint):
+        raise FileNotFoundError(
+            f"RepViT-SAM checkpoint not found: {sam_checkpoint}. "
+            "Download it with 'bash scripts/download_checkpoints.sh --core', or set "
+            "main_models.repvit_sam_checkpoint (or WZ_CKPT_DIR) to point at repvit_sam.pt."
+        )
     model_type = "repvit"
 
     repvit_sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)

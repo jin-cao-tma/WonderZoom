@@ -1443,6 +1443,9 @@ class GaussianModel:
         indices_prev = torch.where(visible_prev)[0]
         
         if len(indices_prev) > 0:
+            # number of restored points (set before the scale fallbacks below, which use it)
+            n_new = len(indices_prev)
+
             # === restore points from prev ===
             xyz_restore = self._xyz_prev[indices_prev]
             feat_dc_restore = self._features_dc_prev[indices_prev]
@@ -1491,8 +1494,6 @@ class GaussianModel:
                 # if no prev now_scale, use default values
                 now_scale_restore = torch.full((n_new,), 0.01, device='cuda')
                 self.now_scale = torch.cat([self.now_scale, now_scale_restore]).detach()
-
-            n_new = len(indices_prev)
 
             new_vis = torch.ones(n_new, dtype=torch.bool, device='cuda')
             new_del = torch.zeros(n_new, dtype=torch.bool, device='cuda')

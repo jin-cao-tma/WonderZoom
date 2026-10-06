@@ -1,0 +1,29 @@
+marigold_lcm: Marigold pipeline code used by WonderZoom
+=======================================================
+
+This directory contains code from Marigold (https://github.com/prs-eth/Marigold),
+Copyright 2023 Bingxin Ke, ETH Zurich, licensed under the Apache License, Version 2.0.
+The license text is in the LICENSE file in this directory.
+
+It also contains code adapted from the Marigold pipelines of Hugging Face diffusers
+(https://github.com/huggingface/diffusers, src/diffusers/pipelines/marigold/),
+Copyright 2024 Marigold authors, PRS ETH Zurich, and Copyright 2024 The HuggingFace Team,
+licensed under the Apache License, Version 2.0.
+
+Modifications
+-------------
+These files were modified by the WonderWorld and WonderZoom authors; they came to WonderZoom
+through WonderWorld (https://github.com/KovenYu/WonderWorld). They differ from the upstream
+Marigold releases. The main changes:
+
+- marigold_pipeline.py: the depth pipeline (MarigoldPipeline) was adapted for use inside
+  WonderWorld/WonderZoom, and l1_loss / l2_loss helpers were added. The normals pipelines
+  (MarigoldPipelineNormal, MarigoldNormalsPipeline) and their helpers (normalize_normals,
+  ensemble_normals, MarigoldNormalsOutput) were added, adapted from diffusers'
+  pipeline_marigold_normals.py.
+- marigold_process.py: MarigoldImageProcessor, adapted from diffusers'
+  marigold_image_processing.py.
+- __init__.py and util/: adjusted to the changes above.
+
+WonderZoom loads the Marigold normals weights (prs-eth/marigold-normals-v0-1, Apache-2.0) from
+Hugging Face; no weights are stored here. See THIRD_PARTY_LICENSES.md at the repository root.

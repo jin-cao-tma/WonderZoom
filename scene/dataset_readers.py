@@ -186,10 +186,7 @@ def readColmapSceneInfo(path, images, eval, preset=None, llffhold=8):
     except:
         pcd = None
 
-    if preset:
-        preset_cam_infos = readCamerasFromPreset('/home/chung/workspace/gaussian-splatting/poses_supplementary', f"{preset}.json")
-    else:
-        preset_cam_infos = None
+    preset_cam_infos = None  # LucidDreamer's preset poses (poses_supplementary/) are not part of WonderZoom
 
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
@@ -291,10 +288,7 @@ def readNerfSyntheticInfo(path, white_background, eval, preset=None, extension="
     print("Reading Test Transforms")
     test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
     
-    if preset:
-        preset_cam_infos = readCamerasFromPreset('/home/chung/workspace/gaussian-splatting/poses_supplementary', f"{preset}.json")
-    else:
-        preset_cam_infos = None
+    preset_cam_infos = None  # LucidDreamer's preset poses (poses_supplementary/) are not part of WonderZoom
     
     if not eval:
         train_cam_infos.extend(test_cam_infos)
