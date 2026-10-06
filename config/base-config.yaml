@@ -3,6 +3,7 @@
 # run.py merges a scene config on top of this file (the scene config wins):
 #     python run.py --example_config config/more_examples/street.yaml
 #     python run.py --image my_photo.jpg [--name my_scene]      # uses config/custom_template.yaml
+#     python run.py --view --example_config config/more_examples/street.yaml   # view the scene in pth_path
 # Every key below is read by the code; the values are the effective defaults (the paper settings).
 # Model services, GPUs and checkpoint paths are configured in config/services.yaml.
 # Note: generate_orbit_cameras_code is executed as Python code; only run configs you trust.
@@ -20,8 +21,8 @@ device: cuda
 gen_H: 720
 gen_W: 1088
 
-# Render-only viewer (run_render_only.py); generation ignores these keys.
-pth_path: null          # Gaussian scene to load (run_render_only.py --pth_path overrides it)
+# View mode (run.py --view); generation ignores these keys.
+pth_path: null          # Gaussian scene to load (run.py --view --pth_path overrides it)
 # orig_H / orig_W: render resolution of that scene (default: gen_H / gen_W)
 
 # ---------------------------------------------------------------------------------------------

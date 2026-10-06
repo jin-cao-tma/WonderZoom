@@ -7,12 +7,13 @@ worker environments yourself.
 
 | Environment | Runs | Key versions | Compiles | Install script |
 |---|---|---|---|---|
-| `wz-main` | `run.py`, `run_render_only.py`, the in-process models (MoGe, GeometryCrafter, OneFormer, Marigold, RepViT-SAM; optional GroundedSAM, SD2 inpainting, INR), all scripts and tests | Python 3.10, torch 2.4.0+cu124, torchvision 0.19.0, PyTorch3D 0.7.8, transformers 4.37.2, diffusers 0.31.0 | PyTorch3D, 3DGS rasterizer, simple-knn (+ GroundingDINO with `--objects`) | `scripts/install_env_main.sh` |
+| `wz-main` | `run.py` (generation and `--view`), the in-process models (MoGe, GeometryCrafter, OneFormer, Marigold, RepViT-SAM; optional GroundedSAM, SD2 inpainting, INR), all scripts and tests | Python 3.10, torch 2.4.0+cu124, torchvision 0.19.0, PyTorch3D 0.7.8, transformers 4.37.2, diffusers 0.31.0 | PyTorch3D, 3DGS rasterizer, simple-knn (+ GroundingDINO with `--objects`) | `scripts/install_env_main.sh` |
 | `wz-gen3c` | `services/workers/gen3c_worker.py` (camera moves, HQ views) | Python 3.10, torch 2.6.0, transformer-engine 1.12.0, apex, megatron-core 0.10.0, transformers 4.49.0, diffusers 0.32.2 | transformer-engine, apex | `scripts/install_env_gen3c.sh` |
 | `wz-coz` | `services/workers/coz_worker.py` (zoom-in super-resolution) | Python 3.10, torch 2.4.1 (cu121 wheel), diffusers 0.32.1, transformers 4.49.0, peft 0.15.2 | nothing | `scripts/install_env_coz.sh` |
 | `wz-step1x` | `services/workers/step1x_worker.py` (object insertion only) | Python 3.10, torch 2.7.1 (cu126 wheel), transformers 4.51.3, diffusers 0.34.0, flash-attn 2.7.4.post1 (prebuilt wheel) | nothing | `scripts/install_env_step1x.sh` |
 
-The render-only viewer needs only `wz-main`.
+Viewing a released or saved scene (`python run.py --view`) needs only `wz-main` and the scene file: no checkpoints
+and no other environment.
 
 There is no top-level `requirements.txt`. A plain `pip install -r` cannot build this stack: `wz-main` needs a
 pinned torch build, PyTorch3D and the 3DGS CUDA extensions compiled from source, and `utils3d` from a pinned git
@@ -194,12 +195,12 @@ see [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md#model-weights-downloade
 
 | Group | Contents | Size | Destination |
 |---|---|---|---|
-| `--core` (required) | OneFormer ADE20k Swin-L, Marigold normals v0-1, GeometryCrafter + SVD-xt image encoder/VAE, MoGe ViT-L, RepViT-SAM | ~12 GB | HF cache; `checkpoints/repvit_sam.pt` |
+| `--core` (required for generation) | OneFormer ADE20k Swin-L, Marigold normals v0-1, GeometryCrafter + SVD-xt image encoder/VAE, MoGe ViT-L, RepViT-SAM | ~12 GB | HF cache; `checkpoints/repvit_sam.pt` |
 | `--gen3c` (camera moves, HQ views) | Gen3C-Cosmos-7B, Cosmos-Tokenize1-CV8x8x8-720p, T5-11B (without `tf_model.h5`) | ~76 GB | `checkpoints/gen3c/` |
 | `--coz` (zoom-in) | Stable Diffusion 3 Medium (**gated**), Qwen2.5-VL-3B-Instruct | ~23 GB | HF cache |
 | `--step1x` (objects) | Step1X-Edit v1.0 (`step1x-edit-i1258.safetensors`, `vae.safetensors`), Qwen2.5-VL-7B-Instruct | ~42 GB | `checkpoints/step1x/`; HF cache |
 | `--objects` (objects) | GroundingDINO SwinT-OGC, SAM ViT-H, BERT base, SD2 inpainting (`sd2-community` mirror), INR-Harmonization | ~6.8 GB | `checkpoints/objects/`; HF cache |
-| `--scenes` (render-only) | released scenes from `TmaKiss/WonderZoom` | ~7.8 GB | `gaussian/` |
+| `--scenes` (`run.py --view`) | released scenes from `TmaKiss/WonderZoom` | ~7.8 GB | `gaussian/` |
 
 - **Locations.** Hub files go to the Hugging Face cache, `$HF_HOME/hub` (default `~/.cache/huggingface/hub`). Gen3C,
   Step1X-Edit and the non-Hub files go to `$WZ_CKPT_DIR` (default `checkpoints/`). Put both on a fast local disk, and

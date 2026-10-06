@@ -8,10 +8,10 @@ L40S.
 
 ## Summary
 
-| | Render-only viewer | Generation |
+| | Viewing (`run.py --view`) | Generation |
 |---|---|---|
-| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 (default build); peak 7,167 MiB (`nvidia-smi`) for the largest released scene (`gau_bird3_complete1080.pth`, 18.4 M Gaussians) | profile B: two GPUs with ≥46 GB (tested); profile A: one GPU with ≥46 GB (tested end to end on one L40S 46 GB); profile C: four GPUs with ≥48 GB (untested); see [Profiles](#gpu-profiles) |
-| Host RAM | about 1.4 GB RSS measured for the largest released scene | ≥192 GB recommended, 256 GB to be safe (idle models are parked in RAM); measured peak RSS of the server and its workers: 135 GB (profile B, with object insertion); loading Gen3C alone needs ≥96 GB |
+| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 (default build); peak 5,258 MiB (`nvidia-smi`) for the largest released scene (`gau_bird3_complete1080.pth`, 18.4 M Gaussians) | profile B: two GPUs with ≥46 GB (tested); profile A: one GPU with ≥46 GB (tested end to end on one L40S 46 GB); profile C: four GPUs with ≥48 GB (untested); see [Profiles](#gpu-profiles) |
+| Host RAM | about 1.3 GB RSS measured for the largest released scene | ≥192 GB recommended, 256 GB to be safe (idle models are parked in RAM); measured peak RSS of the server and its workers: 135 GB (profile B, with object insertion); loading Gen3C alone needs ≥96 GB |
 | Disk | ~7.8 GB scenes + `wz-main` env (12 GB) | ~168 GB checkpoints (`download_checkpoints.sh --all`) + four envs (about 40 GB); a fast local disk is recommended |
 | CPU | any | building the environments is CPU-bound (see [Build times](#build-times)) |
 

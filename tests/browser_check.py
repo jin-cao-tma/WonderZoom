@@ -7,9 +7,11 @@ H/J/R (trajectory; R at the base focal length must be refused without Gen3C), Ct
 fix), Z (undo), X (save, then the saved file is checked) and the object prompt box (keys must not fire
 while typing and must work again after Enter). If the page connects while the server is still loading
 the models, H is pressed first: the refusal must leave the trajectory count at 0.
-Part 'render' opens splat-main/index_stream.html as a file:// page with ?server=<render_url> against
-run_render_only.py serving the saved scene, and checks frames, W/A/S/D, the arrows, V/B, H (no
-trajectory on that server) and Space (orbit).
+Part 'render' (alias 'view') opens the same page served by 'run.py --view' at <render_url>/ and checks
+the viewer: title 'WonderZoom Viewer', status idle, only the W/A/S/D, arrow, V/B and Space rows shown
+(no prompt box, no videos), frames, W/A/S/D, the arrows, V/B, generation keys refused with a
+'view mode' reply (H, R, X: no trajectory point, no image change, no saved file) and Space (orbit).
+It then opens splat-main/index_gen.html as a file:// page with ?server=<render_url>.
 
 Playwright is not part of the release envs. Install it into a separate venv:
     python3 -m venv ~/wz-pw && ~/wz-pw/bin/pip install playwright
@@ -21,8 +23,10 @@ Run it from the repository root, with the server on the GPU you choose:
     ~/wz-pw/bin/python tests/browser_check.py --gen_url http://127.0.0.1:7760 --start_render_server
 or let the driver start and stop both servers (logs go to <out>/):
     ~/wz-pw/bin/python tests/browser_check.py --start_gen_server --start_render_server
-The render-only server uses --render_python, else $WZ_MAIN_PYTHON, else the interpreter registered
-for 'main' (scripts/register_env.py). --phases render --pth_path <scene.pth> checks only the viewer.
+The view server is 'scripts/run_server.sh --view --example_config <cfg> --port <render port>'; it shows
+--pth_path, else the scene saved by X in part 'gen', else the pth_path of the config. It uses
+--render_python, else $WZ_MAIN_PYTHON, else the interpreter registered for 'main' (scripts/register_env.py).
+--phases render checks only the viewer.
 
 Outputs: <out>/NN_<step>.png screenshots and <out>/report.json. Exit code 0 when every check passed,
 1 when a check failed, 2 on a usage error.
@@ -191,6 +195,16 @@ def scene_points(page):
     text = page.evaluate("() => (document.getElementById('scene-stats') || {}).innerText || ''")
     m = re.search(r"([\d,]+) points", text)
     return (int(m.group(1).replace(",", "")) if m else None), text
+
+
+def wait_title(page, title, timeout=10):
+    """run.py sets the title once server-config arrives: poll until it is `title`; returns the last title."""
+    deadline = time.time() + timeout
+    while True:
+        current = page.title()
+        if current == title or time.time() > deadline:
+            return current
+        time.sleep(0.2)
 
 
 def new_page(browser, url):
@@ -471,31 +485,96 @@ def run_gen(browser, args, ck):
 
 
 # ------------------------------------------------------------------------------------------------
-# Render-only page (run_render_only.py)
+# Viewer (run.py --view): the same page, with server-config view_only
 # ------------------------------------------------------------------------------------------------
-def run_render(browser, args, ck):
-    url = "file://" + os.path.join(REPO, "splat-main", "index_stream.html") + "?server=" + args.render_url
-    page, errors = new_page(browser, url)
-    ck.check("render: page title", page.title() == "WonderZoom Viewer", page.title())
+# Visibility of the key rows of the controls table, by their <kbd> texts (e.g. 'WASD', 'CtrlAltSpace').
+KEY_ROWS_JS = r"""
+() => Array.from(document.querySelectorAll('.controls-panel tr')).map((tr) => ({
+  keys: Array.from(tr.querySelectorAll('kbd')).map((k) => k.textContent.trim()).join(''),
+  visible: tr.getClientRects().length > 0 }))
+"""
+VIEW_ROWS = ["WASD", "\u2191\u2193\u2190\u2192", "VB", "Space"]
+GEN_ROWS = ["H", "R", "Z", "X", "C", "J", "Q"]
+
+
+def visible(page, selector):
+    return page.evaluate("(s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0; }",
+                         selector)
+
+
+def files_since(t0, dirs):
+    """Files under dirs (runs/ recursively, the others top-level only) modified at or after t0."""
+    found = []
+    for d, recursive in dirs:
+        if not os.path.isdir(d):
+            continue
+        walk = os.walk(d) if recursive else [(d, [], os.listdir(d))]
+        for root, _, names in walk:
+            for n in names:
+                path = os.path.join(root, n)
+                try:
+                    if os.path.isfile(path) and os.path.getmtime(path) >= t0:
+                        found.append(path)
+                except OSError:
+                    pass
+    return found
+
+
+def press_refused(page, key, settle=1.0):
+    """Press key; returns (first 'view mode' reply or None, server-connect texts, image diff, camera after)."""
+    idx = log_len(page)
+    before = canvas(page)
+    page.keyboard.press(key)
+    reply = wait_log(page, "server-connect", r"view mode", idx, 10)
+    wait_frames(page, n=3, settle=settle)
+    return reply, log_since(page, idx, "server-connect"), diff(before, canvas(page)), camera(page)
+
+
+def run_render(browser, args, ck, pth=None):
+    page, errors = new_page(browser, args.render_url.rstrip("/") + "/")
     connected = wait_log(page, "server-connect", r"^Connected to server", 0, 60)
-    ck.check("render: socket connected via ?server=", connected is not None, connected)
+    ck.check("view: socket connected (page served by run.py --view)", connected is not None, connected)
+    title = wait_title(page, "WonderZoom Viewer")
+    ck.check("view: page title", title == "WonderZoom Viewer", title)
+    idle = wait_log(page, "status-line", r"^idle", 0, 30)
+    ck.check("view: status line shows idle with 'Viewing <file>'", idle is not None and "Viewing " in idle, idle)
     ok_frames = wait_frames(page, n=5, settle=1.5, timeout=120)
     c = canvas(page)
-    ck.check("render: frames are drawn on the canvas", ok_frames and c["draws"] >= 5, f"{c['draws']} frames drawn")
-    ck.check("render: canvas is not blank", c["std"] > 5 and 5 < c["mean"] < 250 and c["lit"] > 0.5,
+    ck.check("view: frames are drawn on the canvas", ok_frames and c["draws"] >= 5, f"{c['draws']} frames drawn")
+    ck.check("view: canvas is not blank", c["std"] > 5 and 5 < c["mean"] < 250 and c["lit"] > 0.5,
              f"mean {c['mean']:.1f}, std {c['std']:.1f}, lit {c['lit']:.2f}, canvas {c['w']}x{c['h']}")
-    ck.shot(page, "render_loaded")
-    check_keys_change_image(page, ck, "render", ["w", "s", "a", "d", "ArrowUp", "ArrowDown"],
-                            {"w": 0.8, "s": 0.8, "a": 0.6, "d": 0.6, "ArrowUp": 0.4, "ArrowDown": 0.4})
-    check_focal(page, ck, "render")
+    ck.shot(page, "view_loaded")
 
-    # run_render_only.py keeps no trajectory and does not answer H: nothing may change.
-    idx = log_len(page)
-    page.keyboard.press("h")
-    time.sleep(2.0)
-    texts = log_since(page, idx, "server-connect")
-    ck.check("render: H adds no trajectory point", camera(page)["count"] == 0 and
-             not any("Trajectory point" in t for t in texts), texts)
+    # Only the viewing controls: no prompt box, no videos, no generation key rows.
+    hidden = {s: not visible(page, s) for s in ("#prompt-box", "#send-button", ".video-area")}
+    ck.check("view: prompt box and video area are hidden", all(hidden.values()), hidden)
+    rows = page.evaluate(KEY_ROWS_JS)
+    shown = [r["keys"] for r in rows if r["visible"]]
+    ck.check("view: W/A/S/D, arrow, V/B and Space rows are shown",
+             all(k in shown for k in VIEW_ROWS), f"shown rows {shown}")
+    ck.check("view: H/R/Z/X/C/J/Q rows are hidden", not any(k in shown for k in GEN_ROWS), f"shown rows {shown}")
+
+    check_keys_change_image(page, ck, "view", ["w", "s", "a", "d", "ArrowUp", "ArrowDown"],
+                            {"w": 0.8, "s": 0.8, "a": 0.6, "d": 0.6, "ArrowUp": 0.4, "ArrowDown": 0.4})
+    check_focal(page, ck, "view")
+
+    # Generation keys: the server refuses them ('<action> ignored: view mode ...'); nothing may change.
+    for key, name in (("h", "H"), ("r", "R")):
+        reply, texts, d, cam = press_refused(page, key)
+        ck.check(f"view: {name} is refused (view mode) and changes nothing",
+                 reply is not None and cam["count"] == 0 and not any("Trajectory point" in t for t in texts)
+                 and d < 1.5, f"reply '{reply}', count {cam['count']}, image diff {d:.2f}, texts {texts}")
+        ck.shot(page, f"view_{key}_refused")
+    t0 = time.time() - 1.0
+    reply, texts, d, cam = press_refused(page, "x", settle=2.0)
+    scene_dir = os.path.dirname(os.path.abspath(pth)) if pth else None
+    new = files_since(t0, [(os.path.join(REPO, "runs"), True), (REPO, False)] +
+                      ([(scene_dir, False)] if scene_dir else []))
+    new = [f for f in new if not f.endswith(".log")]
+    ck.check("view: X is refused (view mode) and saves no file",
+             reply is not None and not any(t.startswith("Saved") for t in texts) and not new and d < 1.5,
+             f"reply '{reply}', new files {new}, image diff {d:.2f}")
+    ck.shot(page, "view_x_refused")
 
     # Space: orbit preview. The server sends 'Orbit preview: i/N' for every orbit frame and
     # 'Orbit preview finished' at the end; the view moves, and afterwards it is back at the start view.
@@ -508,8 +587,8 @@ def run_render(browser, args, ck):
     while time.time() < t_end:
         diffs.append(diff(a, canvas(page)))
         time.sleep(0.1)
-    ck.shot(page, "render_orbit")
-    ck.check("render: Space starts the orbit (progress text, the view moves)",
+    ck.shot(page, "view_orbit")
+    ck.check("view: Space starts the orbit (progress text, the view moves)",
              first is not None and max(diffs) > 2.0, f"'{first}', max image diff {max(diffs):.2f}")
     deadline = time.time() + 120
     n_prev, quiet_since = -1, time.time()
@@ -522,12 +601,27 @@ def run_render(browser, args, ck):
         time.sleep(0.2)
     wait_frames(page, n=3, settle=1.0)
     end = canvas(page)
-    ck.check("render: orbit ends and the view returns to the start view",
+    ck.check("view: orbit ends and the view returns to the start view",
              time.time() < deadline and diff(a, end) < 1.5,
              f"{n_prev} progress messages, image diff to the start view {diff(a, end):.2f}")
     wait_frames(page, n=3, settle=1.0)
-    ck.shot(page, "render_after_orbit")
-    ck.check("render: no JavaScript errors", not errors, errors)
+    ck.shot(page, "view_after_orbit")
+    ck.check("view: no JavaScript errors", not errors, errors)
+    page.close()
+
+    # The same page as a local file:// copy with ?server= (one client at a time: the first page is closed).
+    url = "file://" + os.path.join(REPO, "splat-main", "index_gen.html") + "?server=" + args.render_url
+    page, errors = new_page(browser, url)
+    connected = wait_log(page, "server-connect", r"^Connected to server", 0, 60)
+    ck.check("view(file://): socket connected via ?server=", connected is not None, connected)
+    title = wait_title(page, "WonderZoom Viewer")
+    ok_frames = wait_frames(page, n=5, settle=1.5, timeout=60)
+    c = canvas(page)
+    ck.check("view(file://): viewer title and frames drawn",
+             title == "WonderZoom Viewer" and ok_frames and c["draws"] >= 5 and c["std"] > 5,
+             f"title '{title}', {c['draws']} frames drawn, std {c['std']:.1f}")
+    ck.shot(page, "view_file_page")
+    ck.check("view(file://): no JavaScript errors", not errors, errors)
     page.close()
 
 
@@ -560,10 +654,10 @@ def server_env():
     return env
 
 
-def start(cmd, log_path):
+def start(cmd, log_path, env=None):
     print("starting: " + " ".join(cmd) + f"  (log {log_path})", flush=True)
     log = open(log_path, "w")
-    return subprocess.Popen(cmd, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, env=server_env(),
+    return subprocess.Popen(cmd, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, env=dict(server_env(), **(env or {})),
                             start_new_session=True)
 
 
@@ -583,17 +677,15 @@ def stop(proc, name):
             continue
 
 
-def main_python(args):
-    if args.render_python:
-        return args.render_python
-    if os.environ.get("WZ_MAIN_PYTHON"):
-        return os.environ["WZ_MAIN_PYTHON"]
-    out = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "register_env.py"), "--get", "main"],
-                         capture_output=True, text=True)
-    path = out.stdout.strip()
-    if out.returncode != 0 or not path or path == "null":
-        sys.exit("no main interpreter: pass --render_python or set WZ_MAIN_PYTHON")
-    return path
+def config_pth(example_config):
+    """pth_path of the example config (relative paths: repository root), or None."""
+    path = example_config if os.path.isabs(example_config) else os.path.join(REPO, example_config)
+    try:
+        with open(path) as f:
+            m = re.search(r"^pth_path:\s*['\"]?([^'\"#\s]+)", f.read(), re.M)
+    except OSError:
+        return None
+    return os.path.normpath(os.path.join(REPO, m.group(1))) if m else None
 
 
 def port_of(url):
@@ -607,15 +699,18 @@ def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     p.add_argument("--gen_url", default="http://127.0.0.1:7760", help="generation server (run.py)")
-    p.add_argument("--render_url", default="http://127.0.0.1:7761", help="render-only server (run_render_only.py)")
-    p.add_argument("--phases", default="gen,render", help="comma-separated: gen, render")
+    p.add_argument("--render_url", "--view_url", dest="render_url", default="http://127.0.0.1:7761",
+                   help="view server (run.py --view)")
+    p.add_argument("--phases", default="gen,render", help="comma-separated: gen, render (or view)")
     p.add_argument("--example_config", default="config/more_examples/street.yaml")
-    p.add_argument("--pth_path", default=None, help="scene for the render phase (default: the one saved by X)")
+    p.add_argument("--pth_path", default=None,
+                   help="scene for the render phase (default: the one saved by X, else the config's pth_path)")
     p.add_argument("--start_gen_server", action="store_true",
                    help="start 'scripts/run_server.sh --no_services' on the --gen_url port and stop it at the end")
-    p.add_argument("--start_render_server", action="store_true",
-                   help="start run_render_only.py on the --render_url port and stop it at the end")
-    p.add_argument("--render_python", default=None, help="interpreter of run_render_only.py")
+    p.add_argument("--start_render_server", "--start_view_server", dest="start_render_server", action="store_true",
+                   help="start 'scripts/run_server.sh --view' on the --render_url port and stop it at the end")
+    p.add_argument("--render_python", default=None,
+                   help="interpreter of the view server (WZ_MAIN_PYTHON for scripts/run_server.sh)")
     p.add_argument("--chromium", default=None, help="Chromium/Chrome executable (default: Playwright's)")
     p.add_argument("--headed", action="store_true", help="show the browser window")
     p.add_argument("--boot_timeout", type=float, default=1800, help="seconds to wait for a server to be ready")
@@ -623,12 +718,9 @@ def main():
     p.add_argument("--out", default=None, help="output directory (default runs/_browser/<time>)")
     args = p.parse_args()
 
-    phases = [s.strip() for s in args.phases.split(",") if s.strip()]
+    phases = [{"view": "render"}.get(s.strip(), s.strip()) for s in args.phases.split(",") if s.strip()]
     if not phases or set(phases) - {"gen", "render"}:
         p.print_usage()
-        return 2
-    if "render" in phases and "gen" not in phases and not args.pth_path and args.start_render_server:
-        print("--phases render with --start_render_server needs --pth_path")
         return 2
     try:
         from playwright.sync_api import sync_playwright
@@ -664,20 +756,15 @@ def main():
                 report["saved_pth"] = pth
             if "render" in phases:
                 if args.start_render_server:
-                    if not pth:
-                        ck.check("render: a scene to serve", False, "no .pth (X failed and no --pth_path)")
-                    else:
-                        cmd = [main_python(args), "run_render_only.py", "--pth_path", pth,
-                               "--example_config", args.example_config, "--port", port_of(args.render_url)]
-                        with open(os.path.join(REPO, "run_render_only.py")) as f:
-                            if '"--host"' in f.read():
-                                cmd += ["--host", "127.0.0.1"]
-                        procs["render"] = start(cmd, os.path.join(out, "server_render.log"))
-                if not args.start_render_server or "render" in procs:
-                    probe = args.render_url.rstrip("/") + "/socket.io/?EIO=4&transport=polling"
-                    ready = wait_http(probe, procs.get("render"), args.boot_timeout)
-                    if ck.check("render: server answers Socket.IO", ready, args.render_url):
-                        run_render(browser, args, ck)
+                    # As the gen server; without a .pth run.py --view shows the pth_path of the config.
+                    procs["render"] = start(["bash", "scripts/run_server.sh", "--view", "--example_config",
+                                             args.example_config, "--port", port_of(args.render_url)] +
+                                            (["--pth_path", pth] if pth else []),
+                                            os.path.join(out, "server_render.log"),
+                                            {"WZ_MAIN_PYTHON": args.render_python} if args.render_python else None)
+                ready = wait_http(args.render_url.rstrip("/") + "/", procs.get("render"), args.boot_timeout)
+                if ck.check("view: server answers HTTP", ready, args.render_url):
+                    run_render(browser, args, ck, pth or config_pth(args.example_config))
             browser.close()
     except Exception as e:
         import traceback

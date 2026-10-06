@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Start the WonderZoom generation server (run.py) with the registered wz-main interpreter.
+# Start the WonderZoom server (run.py: generation, or --view) with the registered wz-main interpreter.
 #
 # Usage: bash scripts/run_server.sh [run.py arguments...]     (--wrapper-help: show this text)
 #   bash scripts/run_server.sh --example_config config/more_examples/street.yaml
 #   bash scripts/run_server.sh --image my_photo.jpg --port 7747
+#   bash scripts/run_server.sh --view --example_config config/more_examples/street.yaml
 #
 # - The interpreter is WZ_MAIN_PYTHON, else the one registered in config/services.local.yaml by
 #   scripts/install_env_main.sh (see `python scripts/register_env.py --show`).

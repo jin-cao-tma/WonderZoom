@@ -34,7 +34,7 @@ GROUP_HELP = {
     "coz": "Chain-of-Zoom super-resolution (required for zoom-in; SD3 is gated)",
     "step1x": "Step1X-Edit object insertion (optional)",
     "objects": "GroundedSAM, SD2 inpainting, INR harmonization (optional)",
-    "scenes": "released pre-generated scenes for run_render_only.py (optional)",
+    "scenes": "released pre-generated scenes for run.py --view (optional)",
 }
 
 # ---------------------------------------------------------------------------------------
@@ -115,7 +115,7 @@ HF_ITEMS = [
                 "vae/diffusion_pytorch_model.fp16.safetensors"]),
     # --- scenes ----------------------------------------------------------------------------
     dict(name="released_scenes", group="scenes", key="SCENES", repo_type="dataset", dest="root:",
-         purpose="released scenes for run_render_only.py, saved to gaussian/",
+         purpose="released scenes for run.py --view, saved to gaussian/",
          allow=["gaussian/*.pth"]),
 ]
 

@@ -167,16 +167,21 @@
         #session-dir {
             font-family: monospace;
         }
+
+        /* run.py --view (server-config view_only): only the viewing controls */
+        body.view-only .view-hide {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
     <!-- Object prompt and server status -->
     <div class="top-bar">
-        <label for="prompt-box">Object to insert at the next zoom-in:</label>
-        <input type="text" id="prompt-box" autocomplete="off" placeholder="e.g. a ladybug"
+        <label for="prompt-box" class="view-hide">Object to insert at the next zoom-in:</label>
+        <input type="text" id="prompt-box" class="view-hide" autocomplete="off" placeholder="e.g. a ladybug"
                title="Kept across camera moves until the next zoom-in inserts it; an empty prompt clears it." />
-        <button id="send-button">Set</button>
-        <span id="prompt-current">current: <span id="current-prompt">(none)</span></span>
+        <button id="send-button" class="view-hide">Set</button>
+        <span id="prompt-current" class="view-hide">current: <span id="current-prompt">(none)</span></span>
         <div id="status-line" data-state="loading">waiting for server...</div>
     </div>
 
@@ -190,25 +195,25 @@
                 <table>
                     <tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></td><td>Rotate camera (pitch / yaw)</td></tr>
                     <tr><td><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>Move forward / back / left / right</td></tr>
-                    <tr><td><kbd>N</kbd><kbd>M</kbd></td><td>Move down / up</td></tr>
+                    <tr class="view-hide"><td><kbd>N</kbd><kbd>M</kbd></td><td>Move down / up</td></tr>
                     <tr><td><kbd>V</kbd><kbd>B</kbd></td><td>Zoom in / out (focal length)</td></tr>
-                    <tr><td><kbd>H</kbd></td><td>Add the current view as a trajectory point (zoom-in: press once at the start view)</td></tr>
-                    <tr><td><kbd>J</kbd></td><td>Clear the trajectory</td></tr>
-                    <tr><td><kbd>R</kbd></td><td>Generate to the current view: zoomed in = zoom-in generation, otherwise camera move</td></tr>
-                    <tr><td><kbd>Q</kbd></td><td>Toggle rewrite / overwrite mode for zoom-in</td></tr>
+                    <tr class="view-hide"><td><kbd>H</kbd></td><td>Add the current view as a trajectory point (zoom-in: press once at the start view)</td></tr>
+                    <tr class="view-hide"><td><kbd>J</kbd></td><td>Clear the trajectory</td></tr>
+                    <tr class="view-hide"><td><kbd>R</kbd></td><td>Generate to the current view: zoomed in = zoom-in generation, otherwise camera move</td></tr>
+                    <tr class="view-hide"><td><kbd>Q</kbd></td><td>Toggle rewrite / overwrite mode for zoom-in</td></tr>
                     <tr><td><kbd>Space</kbd></td><td>Orbit preview</td></tr>
-                    <tr data-feature="gen3c"><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>High-quality orbit refinement (Gen3C)</td></tr>
-                    <tr><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Space</kbd></td><td>Fix small cracks</td></tr>
-                    <tr data-feature-show="objects" style="display: none"><td><kbd>P</kbd></td><td>Complete the background behind objects in the current view</td></tr>
-                    <tr><td><kbd>Z</kbd></td><td>Undo the last generation</td></tr>
-                    <tr><td><kbd>X</kbd></td><td>Save the scene</td></tr>
-                    <tr><td><kbd>C</kbd></td><td>Delete the Gaussians visible in the current view</td></tr>
+                    <tr class="view-hide" data-feature="gen3c"><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></td><td>High-quality orbit refinement (Gen3C)</td></tr>
+                    <tr class="view-hide"><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Space</kbd></td><td>Fix small cracks</td></tr>
+                    <tr class="view-hide" data-feature-show="objects" style="display: none"><td><kbd>P</kbd></td><td>Complete the background behind objects in the current view</td></tr>
+                    <tr class="view-hide"><td><kbd>Z</kbd></td><td>Undo the last generation</td></tr>
+                    <tr class="view-hide"><td><kbd>X</kbd></td><td>Save the scene</td></tr>
+                    <tr class="view-hide"><td><kbd>C</kbd></td><td>Delete the Gaussians visible in the current view</td></tr>
                 </table>
             </div>
         </div>
 
         <!-- Generation previews sent by the server -->
-        <div class="video-area">
+        <div class="video-area view-hide">
             <div class="video-block">
                 <h3>Rough Video</h3>
                 <video id="roughVideo" class="video-el" controls muted playsinline></video>
@@ -229,7 +234,7 @@
         <div id="server-state">
             <span id="server-connect">Connecting to server...</span>
             <div id="scene-stats"></div>
-            <div>Session: <span id="session-dir"></span></div>
+            <div class="view-hide">Session: <span id="session-dir"></span></div>
             <div id="message"></div>
         </div>
         <div id="quality">

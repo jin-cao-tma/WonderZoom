@@ -8,7 +8,7 @@ at about 10 Hz, and every scenario step sends the same events as the correspondi
     python tests/e2e_headless.py --scenario boot,crack_fix,delete,undo,save
     python tests/e2e_headless.py --url http://127.0.0.1:7747 --scenario move,zoom,undo,zoom,hq_nvs,save \
         --coz_seed 123 --timeout 7200 --out runs/_e2e/street
-    python tests/e2e_headless.py --url http://127.0.0.1:7748 --scenario frames      # run_render_only.py
+    python tests/e2e_headless.py --url http://127.0.0.1:7748 --scenario frames      # run.py --view
 
 Scenario steps (comma separated, run in order; 'boot' is implied unless the scenario starts with
 'frames'):
@@ -20,7 +20,7 @@ Scenario steps (comma separated, run in order; 'boot' is implied unless the scen
     orbit        Space (orbit preview, no scene change)
     reject_move  R at the base focal length must be refused (e.g. --no_services); the server stays alive
     reject_zoom  H + R at a zoomed focal length must be refused
-    frames       wait for --min_frames 'frame' events (also works against run_render_only.py)
+    frames       wait for --min_frames 'frame' events (also works against run.py --view)
 
 Camera math (invert4 / translate4 / rotate4 and the view matrix) is ported from main_stream.js.
 The driver saves the received 'frame' JPEGs (throttled, plus one per step), the 'rough-video' /

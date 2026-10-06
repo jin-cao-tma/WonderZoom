@@ -27,10 +27,11 @@ Whatever license the authors choose, it cannot change the terms of the third-par
 | **Guardrail condition** | Gen3C-Cosmos-7B and the Cosmos tokenizer (NVIDIA Open Model License); see [below](#nvidia-open-model-license-and-the-gen3c-guardrail) |
 | **Paid API, provider terms** | OpenAI GPT-4o (optional; only with `OPENAI_API_KEY`) |
 
-**Net effect: both the full generation pipeline and the render-only viewer are for non-commercial use only.** The
-render-only viewer uses none of the models, but it uses the 3DGS rasterizer, simple-knn, the 3DGS-derived code and
-the LucidDreamer-derived `arguments_in.py`. The generation pipeline additionally needs GeometryCrafter, SD3 Medium
-and Qwen2.5-VL-3B-Instruct, which are all non-commercial.
+**Net effect: both the full generation pipeline and view mode (`run.py --view`) are for non-commercial use only.**
+View mode loads none of the model weights, but it uses the 3DGS rasterizer, simple-knn, the 3DGS-derived code and
+the LucidDreamer-derived `arguments_in.py`, and `run.py` imports the generation code (including the GeometryCrafter
+code) in both modes. The generation pipeline additionally needs the GeometryCrafter weights, SD3 Medium and
+Qwen2.5-VL-3B-Instruct, which are all non-commercial.
 
 ## Code in this repository
 
@@ -122,7 +123,7 @@ Licenses as stated on the model pages at the revisions pinned in `third_party/pi
 | [SAM ViT-H](https://github.com/facebookresearch/segment-anything) | object segmentation | `--objects` | Apache-2.0 | |
 | [Stable Diffusion 2 inpainting](https://huggingface.co/sd2-community/stable-diffusion-2-inpainting) (community mirror) | background plates | `--objects` | CreativeML Open RAIL++-M | use-based restrictions |
 | INR-Harmonization `Resolution_RAW_iHarmony4.pth` | harmonization | `--objects` | released with the Apache-2.0 [INR-Harmonization](https://github.com/WindVChen/INR-Harmonization) repository | hosted on Google Drive |
-| [Released WonderZoom scenes](https://huggingface.co/datasets/TmaKiss/WonderZoom) | render-only viewer | `--scenes` | see the dataset page <!-- TODO(authors): scene license --> | generated with the models above |
+| [Released WonderZoom scenes](https://huggingface.co/datasets/TmaKiss/WonderZoom) | `run.py --view` | `--scenes` | see the dataset page <!-- TODO(authors): scene license --> | generated with the models above |
 
 Not downloaded by default: the Gen3C guardrail models [Cosmos-Guardrail1](https://huggingface.co/nvidia/Cosmos-Guardrail1)
 (NVIDIA Open Model License, gated) and [Llama-Guard-3-8B](https://huggingface.co/meta-llama/Llama-Guard-3-8B)

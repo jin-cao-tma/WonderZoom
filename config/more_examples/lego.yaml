@@ -7,7 +7,7 @@ gen_W: 720
 # Gen3C text prompt (the paper runs sent the literal string 'None')
 gen3c_prompt: 'None'
 
-# render-only viewer (run_render_only.py): released scene and its render resolution
+# view mode (run.py --view): released scene and its render resolution
 pth_path: ./gaussian/gau_lego_complete.pth
 orig_H: 480
 orig_W: 720

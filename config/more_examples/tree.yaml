@@ -7,7 +7,7 @@ gen_W: 1088
 # Gen3C text prompt (the paper runs sent the literal string 'None')
 gen3c_prompt: 'None'
 
-# render-only viewer (run_render_only.py): released scene and its render resolution
+# view mode (run.py --view): released scene and its render resolution
 pth_path: ./gaussian/gau_beetle1_complete1080.pth
 orig_H: 720
 orig_W: 1080

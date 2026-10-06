@@ -39,10 +39,14 @@ synthesizer grows the scene interactively:
 
 ## What is released
 
-| Part | Entry points | What you need |
+One server, `run.py`, serves one page, `splat-main/index_gen.html`, at `http://localhost:7747/` in both modes.
+
+| Mode | Entry point | What you need |
 |---|---|---|
-| **Render-only viewer** | `run_render_only.py`, `splat-main/index_stream.html` | one GPU, the `wz-main` environment and the [pre-generated scenes](https://huggingface.co/datasets/TmaKiss/WonderZoom) |
-| **Full generation pipeline** | `run.py` (served UI: `splat-main/index_gen.html`) | four conda environments, about 168 GB of checkpoints and a large GPU (see [Hardware](#hardware-requirements)) |
+| **Generation** (default): the page shows the scene live while it is generated | `run.py` (or `scripts/run_server.sh`) | four conda environments, about 168 GB of checkpoints and a large GPU (see [Hardware](#hardware-requirements)) |
+| **Viewing** a released or saved scene: no generation model, no worker | `run.py --view` | one GPU, the `wz-main` environment and the [pre-generated scenes](https://huggingface.co/datasets/TmaKiss/WonderZoom) |
+
+`run.py --view` replaces `run_render_only.py` and `splat-main/index_stream.html` of the first release.
 
 The generation pipeline runs the three video and image models (Gen3C, Chain-of-Zoom and Step1X-Edit) as persistent
 worker processes in their own environments. On a single 46-48 GB GPU, the default `auto` GPU policy lets the models
@@ -51,7 +55,7 @@ checkpoints and check the installation.
 
 ## License
 
-> **Non-commercial use only.** Both the render-only viewer and the generation pipeline depend on components that
+> **Non-commercial use only.** Both viewing (`run.py --view`) and generation depend on components that
 > do not allow commercial use. Read [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) before you use or
 > redistribute the code, the weights or the generated scenes.
 
@@ -62,8 +66,8 @@ Non-commercial components:
 
 | Component | License | Needed by |
 |---|---|---|
-| 3DGS rasterizer, simple-knn and the 3DGS-derived code (`submodules/`, `scene/`, `gaussian_renderer/`, parts of `utils/`) | Inria Gaussian-Splatting License: non-commercial research and evaluation | viewer and generation |
-| Files derived from [LucidDreamer](https://github.com/luciddreamer-cvlab/LucidDreamer) (`utils/trajectory.py`, `utils/depth.py`, `arguments_in.py`, `scene/__init__.py`, `scene/dataset_readers.py`) | CC BY-NC-SA 4.0 ([`LICENSES/`](LICENSES/LucidDreamer-CC-BY-NC-SA-4.0.txt)): attribution, non-commercial, share-alike | viewer and generation |
+| 3DGS rasterizer, simple-knn and the 3DGS-derived code (`submodules/`, `scene/`, `gaussian_renderer/`, parts of `utils/`) | Inria Gaussian-Splatting License: non-commercial research and evaluation | viewing and generation |
+| Files derived from [LucidDreamer](https://github.com/luciddreamer-cvlab/LucidDreamer) (`utils/trajectory.py`, `utils/depth.py`, `arguments_in.py`, `scene/__init__.py`, `scene/dataset_readers.py`) | CC BY-NC-SA 4.0 ([`LICENSES/`](LICENSES/LucidDreamer-CC-BY-NC-SA-4.0.txt)): attribution, non-commercial, share-alike | viewing and generation |
 | [GeometryCrafter](https://github.com/TencentARC/GeometryCrafter) code and weights | GeometryCrafter license: academic, research and education only | generation |
 | [Stable Diffusion 3 Medium](https://huggingface.co/stabilityai/stable-diffusion-3-medium-diffusers) (diffusers, gated) | Stability AI Non-Commercial Research Community License | generation (zoom-in) |
 | [Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) | Qwen Research License (non-commercial) | generation (zoom-in) |
@@ -78,7 +82,7 @@ Other terms to be aware of:
   Stable Diffusion 2 inpainting (object insertion) is under CreativeML Open RAIL++-M, which has use-based
   restrictions.
 
-## Quick start: render-only viewer
+## Quick start: view a released scene
 
 **1. Install the main environment.** It builds PyTorch3D and the 3DGS CUDA extensions, which takes about 30-60 min
 on 16 CPUs.
@@ -97,11 +101,15 @@ bash scripts/download_checkpoints.sh --scenes
 huggingface-cli download TmaKiss/WonderZoom --repo-type dataset --include "gaussian/*.pth" --local-dir ./
 ```
 
-**3. Run the render server:**
+**3. Start the server in view mode:**
 
 ```bash
-python run_render_only.py --example_config ./config/more_examples/street.yaml --port 7747
+python run.py --view --example_config config/more_examples/street.yaml
 ```
+
+`--view` loads the scene file of the config (`pth_path`), renders it at the config's `orig_H` x `orig_W` (else
+`gen_H` x `gen_W`) and uses the config's orbit code for Space. It loads no generation model and starts no worker.
+Start-up takes about 35 s for the largest released scene.
 
 | Config | Scene | Resolution |
 |--------|-------|-----------|
@@ -116,31 +124,31 @@ python run_render_only.py --example_config ./config/more_examples/street.yaml --
 | `beach2.yaml` | Beach (480p) | 480x720 |
 | `tea_garden2.yaml` | Tea garden (480p) | 480x720 |
 
-You can also pass a `.pth` file directly:
+You can also pass a `.pth` file directly (`--pth_path` implies `--view`):
 
 ```bash
-python run_render_only.py --pth_path ./gaussian/gau_bird3_complete1080.pth \
-    --example_config ./config/more_examples/street.yaml --port 7747
+python run.py --view --pth_path ./gaussian/gau_bird3_complete1080.pth \
+    --example_config config/more_examples/street.yaml
 ```
 
-**Streaming quality:** if the viewer feels laggy over SSH, lower these two values at the top of `run_render_only.py`:
+Add `--dry_run` to print the resolved scene path, render size and stream settings and exit before loading the scene.
 
-```python
-IMAGE_COMPRESSION_QUALITY = 80   # lower (e.g. 20) = faster but blurrier
-MAX_IMAGE_SIZE = 1080            # lower (e.g. 512) = faster streaming
-```
+**Streaming quality:** view mode streams JPEG frames of quality 80, at most 1080 px on the longest edge
+(`--stream_quality 80 --stream_max_size 1080`). If the viewer lags over SSH, lower them, e.g.
+`--stream_max_size 512 --stream_quality 40`.
 
-**4. Connect the frontend.** If the server is remote, forward the port first:
+**4. Open the page.** The server binds to `127.0.0.1:7747`. If it is remote, forward the port first:
 
 ```bash
-ssh -L 7747:localhost:7747 <your-server>
+ssh -N -L 7747:localhost:7747 <your-server>
 ```
 
-Then open `splat-main/index_stream.html` from a local copy of this repository. The page connects to
-`http://localhost:7747` by default. To use another address, append `?server=host:port` to the URL.
+Then open `http://localhost:7747/`. Pass `--host 0.0.0.0` to serve other machines directly. The page also works as
+a local file: `splat-main/index_gen.html?server=localhost:7747`.
 
-The render server listens on all interfaces (`0.0.0.0`) by default. Pass `--host 127.0.0.1` to accept only local
-and SSH-forwarded connections.
+In view mode the page is titled "WonderZoom Viewer", hides the generation controls and shows `idle` with
+`Viewing <file>` in the status line. Generation keys are refused; start `run.py` without `--view` to generate.
+Stop the server with Ctrl+C.
 
 | Key | Action |
 |-----|--------|
@@ -217,18 +225,17 @@ object is inserted at the end of the next zoom-in.
 
 ### Viewing a saved scene
 
-**X** saves the scene in the same format as the released scenes, so the render-only viewer can load it. Pass the
+**X** saves the scene in the same format as the released scenes, so `run.py --view` can load it. Pass the
 session's `config.yaml` as the scene config: it records the generation resolution and the scene's orbit code.
-Run it in the `wz-main` environment from the repository root, on another port if the generation server is still
-running:
+Run it in the `wz-main` environment, on another port if the generation server is still running:
 
 ```bash
-python run_render_only.py --pth_path runs/street/<YYYYmmdd-HHMMSS>/scenes/street_000.pth \
+python run.py --view --pth_path runs/street/<YYYYmmdd-HHMMSS>/scenes/street_000.pth \
     --example_config runs/street/<YYYYmmdd-HHMMSS>/config.yaml --port 7748
 ```
 
-Then forward port 7748 and open `splat-main/index_stream.html?server=localhost:7748` from a local copy of the
-repository. See [Viewing saved scenes](docs/GENERATION_GUIDE.md#viewing-saved-scenes) and, for `.splat` export,
+Then forward port 7748 and open `http://localhost:7748/`. See
+[Viewing saved scenes](docs/GENERATION_GUIDE.md#viewing-saved-scenes) and, for `.splat` export,
 `tools/export_splat.py`.
 
 ## Documentation
@@ -244,11 +251,11 @@ repository. See [Viewing saved scenes](docs/GENERATION_GUIDE.md#viewing-saved-sc
 
 ## Hardware requirements
 
-| | Render-only viewer | Generation |
+| | Viewing (`run.py --view`) | Generation |
 |---|---|---|
-| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 with the default build; about 7 GiB peak (7,167 MiB in `nvidia-smi`) for the largest released scene | two GPUs with ≥46 GB (profile B, tested), or one GPU with ≥46 GB (profile A, single-GPU `exclusive` policy; tested end to end on one L40S 46 GB, peak 39,971 MiB in `nvidia-smi`) |
+| GPU | one NVIDIA GPU, compute capability 8.0 / 8.6 / 8.9 / 9.0 with the default build; peak 5,258 MiB in `nvidia-smi` for the largest released scene | two GPUs with ≥46 GB (profile B, tested), or one GPU with ≥46 GB (profile A, single-GPU `exclusive` policy; tested end to end on one L40S 46 GB, peak 39,971 MiB in `nvidia-smi`) |
 | Tested on | 1x NVIDIA L40S 46 GB | 2x NVIDIA L40S 46 GB: the main process on GPU 0, Gen3C, Chain-of-Zoom and Step1X-Edit taking turns on GPU 1 (`exclusive`) |
-| Host RAM | about 1.4 GB RSS for the largest released scene | ≥192 GB recommended, 256 GB to be safe (idle models are parked in RAM; measured peak RSS of the server and its workers: 135 GB with object insertion); loading Gen3C alone needs ≥96 GB |
+| Host RAM | about 1.3 GB RSS for the largest released scene | ≥192 GB recommended, 256 GB to be safe (idle models are parked in RAM; measured peak RSS of the server and its workers: 135 GB with object insertion); loading Gen3C alone needs ≥96 GB |
 | Disk | ~7.8 GB scenes + `wz-main` (12 GB) | ~168 GB checkpoints (`--all`) + four environments (about 40 GB) |
 | Time per camera move / zoom-in | n/a | measured on 2x L40S: about 16.5 min per camera move (in the test, the first move included about 3 min of waiting for the other workers to load), 1.7-2.5 min per zoom-in, 5.5 min for a zoom-in with object insertion |
 
@@ -269,14 +276,13 @@ See [docs/HARDWARE.md](docs/HARDWARE.md) for per-model numbers and multi-GPU pro
 | Semantic content / object insertion at a new scale | `run.py` `add_object_to_image` (Step1X-Edit via `services/step1x.py`, `util/gpt4.py` `generate_edit_prompt`, `util/back_ground.py` `GroundedSAMSegmentationModel`, INR harmonization, `get_pure_background` with SD2 `inpaint_background`, `models/vdm_model.py` `process_single_img_mask` and `_apply_constrained_tilt_transform`); object refresh during later zooms: `add_object_to_image_with_image`, `update_gaussian_obj` |
 | Incremental scene update (train only new content) | `run.py` `train_gaussian` (`newly_added_points`, `trainable_mask`, `hq_mode`); `scene/gaussian_model.py` `set_trainable_mask`, `merge_all_to_trainable`, `set_points_label`, `get_label_mask`, `freeze_labels` |
 | Interactive exploration (streaming viewer, trajectory UI) | `run.py` `render_current_scene` and the Socket.IO handlers (`handle_gen`, ...); `models/vdm_model.py` `get_camera_by_js_view_matrix`; `splat-main/main_stream.js`, `splat-main/index_gen.html` |
-| Saving and viewing scenes | `run.py` `save_gaussian_with_global_labels`; `run_render_only.py` `load_gaussian_with_global_labels`; `tools/export_splat.py` |
+| Saving and viewing scenes | `run.py` `save_gaussian_with_global_labels`, `load_gaussian_with_global_labels` (`--view`); `tools/export_splat.py` |
 
 ## Project structure
 
 ```
 WonderZoom/
-├── run.py                   # generation server (Flask + Socket.IO); serves splat-main/index_gen.html
-├── run_render_only.py       # render-only server for saved / released scenes
+├── run.py                   # the server (Flask + Socket.IO): generation, or --view for saved / released scenes; serves splat-main/index_gen.html
 ├── config/
 │   ├── base-config.yaml     # every scene key with its default
 │   ├── custom_template.yaml # used by run.py --image
@@ -293,7 +299,7 @@ WonderZoom/
 ├── models/, scene/, gaussian_renderer/, util/, utils/, marigold_lcm/   # WonderZoom core
 ├── GeometryCrafter/, MoGe/, RepViT/   # vendored (trimmed) dependencies
 ├── submodules/              # 3DGS rasterizer and simple-knn CUDA extensions
-├── splat-main/              # web frontends (index_gen.html, index_stream.html)
+├── splat-main/              # web page (index_gen.html, main_stream.js)
 ├── external/                # pinned upstream clones (created by the scripts; gitignored)
 ├── checkpoints/             # Gen3C, Step1X-Edit and other weights (created by the scripts; gitignored)
 ├── gaussian/                # released scenes (download_checkpoints.sh --scenes)

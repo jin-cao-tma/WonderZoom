@@ -50,6 +50,9 @@ The page (`splat-main/index_gen.html`) shows:
   **Output Video** (the generated video) and **Concatenated Video**;
 - in the bottom bar, the scene statistics and the session directory.
 
+With `--view` the page shows only the live view, the view keys and the bottom bar (see
+[Viewing saved scenes](#viewing-saved-scenes)).
+
 Rejected requests (busy, wrong number of trajectory points, service disabled) are explained in the message line.
 
 Every run writes a session directory:
@@ -173,20 +176,22 @@ Step1X-Edit calls, the preview keeps streaming under the `resident` policy and p
 
 ### Viewing saved scenes
 
-Saved scenes use the same format as the released ones. Load one with `run_render_only.py`, and pass the session's
+Saved scenes use the same format as the released ones. Load one with `run.py --view`, and pass the session's
 `config.yaml`: it records the generation resolution, which the viewer needs for the principal point, and the
-scene's orbit code. Run it from the repository root (it reads `./config/base-config.yaml`, and the paths below are
-relative to the root). Use a port other than the generation server's if that is still running.
+scene's orbit code. View mode loads no generation model and starts no worker, so it needs only `wz-main`. Relative
+paths are resolved against your current directory first, then against the repository root. Use a port other than
+the generation server's if that is still running.
 
 ```bash
 conda activate wz-main          # or call the interpreter printed by: python3 scripts/register_env.py --get main
-python run_render_only.py --pth_path runs/street/<time>/scenes/street_000.pth \
+python run.py --view --pth_path runs/street/<time>/scenes/street_000.pth \
     --example_config runs/street/<time>/config.yaml --port 7748
 ```
 
-Then open `splat-main/index_stream.html?server=localhost:7748` from a local copy of the repository (forward port
-7748 first if the machine is remote: `ssh -L 7748:localhost:7748 <server>`). The viewer's keys are listed in the
-[README](../README.md#quick-start-render-only-viewer).
+`bash scripts/run_server.sh --view ...` works as well. Then open `http://localhost:7748/` (forward port 7748 first
+if the machine is remote: `ssh -N -L 7748:localhost:7748 <server>`). The page hides the generation controls; a
+generation key is refused with `<action> ignored: view mode (--view): generation is off; ...`. The view keys
+are listed in the [README](../README.md#quick-start-view-a-released-scene).
 
 ### Exporting a `.splat` file
 
@@ -242,18 +247,21 @@ different results. To fix the seeds per request instead, see `services.coz.seed`
 | `--base_config PATH` | `config/base-config.yaml` | base config |
 | `--image PATH` | none | generate from your own image (uses `config/custom_template.yaml` unless `--example_config` is given) |
 | `--name NAME` | file stem | session name (`example_name`) |
+| `--view` | off | view a saved scene only: `--pth_path`, else the config's `pth_path`, rendered at `orig_H` x `orig_W` (else `gen_H` x `gen_W`); loads no generation model, starts no worker, needs only `wz-main`; `--image` and `--name` are rejected |
+| `--pth_path PATH` | config's `pth_path` | scene to view; implies `--view` |
 | `--services_config PATH` | `config/services.yaml` | model services config |
-| `--no_services` | off | do not start Gen3C, Chain-of-Zoom or Step1X-Edit: view and edit the initial scene only |
+| `--no_services` | off | do not start Gen3C, Chain-of-Zoom or Step1X-Edit: build, view and edit the initial scene only (for a saved scene use `--view`) |
 | `--gpu_policy {auto,resident,exclusive}` | from `services.yaml` | override `gpu.policy` |
 | `--main_gpu N` | from `services.yaml` | logical GPU index of the main process (`gpu.main_device`) |
 | `--host ADDR` | `127.0.0.1` | bind address; `0.0.0.0` serves other machines |
 | `--port N` | `7747` | port of the web UI and Socket.IO |
-| `--stream_max_size N` | `256` | longest edge (pixels) of the streamed preview frames |
-| `--stream_quality N` | `20` | JPEG quality (1-100) of the preview frames |
+| `--stream_max_size N` | `256` (`1080` with `--view`) | longest edge (pixels) of the streamed preview frames |
+| `--stream_quality N` | `20` (`80` with `--view`) | JPEG quality (1-100) of the preview frames |
 | `--debug` | off | open a post-mortem debugger when a request fails: ipdb if installed (`pip install ipdb`), else pdb (default: log, roll back, continue) |
-| `--dry_run` | off | resolve the configs, import every module and exit before loading any model |
+| `--dry_run` | off | resolve the configs, import every module and exit before loading any model (with `--view`: print the scene path, render size and stream settings) |
 
 The defaults keep the preview light over SSH. On a fast connection, try `--stream_max_size 1088 --stream_quality 80`.
+If the `--view` stream (1080 / 80) lags, lower it, e.g. `--stream_max_size 512 --stream_quality 40`.
 
 ### Scene config keys
 
@@ -282,11 +290,11 @@ The defaults keep the preview light over SSH. On a fast connection, try `--strea
 | `use_harmol` | `true` | harmonize inserted objects (skipped with a warning if INR-Harmonization is not installed) |
 | `object_edit_prompt_template` | `'{object} is on the ground'` | Step1X-Edit prompt without GPT-4o; `{object}` is the text typed in the UI |
 | `foreground_words`, `background_prompt` | `[]`, `''` | foreground objects and background description for P and `pull_foreground_depth_rewrite` when GPT-4o is not used |
-| `pth_path`, `orig_H`, `orig_W` | | used only by `run_render_only.py` (released scene and its render size); generation ignores them |
+| `pth_path`, `orig_H`, `orig_W` | | used only by `run.py --view` (scene file and its render size; `--pth_path` overrides `pth_path`); generation ignores them |
 
 ### Example scenes (`config/more_examples/`)
 
-| Config | Input image | Generation size | Released scene (render-only) |
+| Config | Input image | Generation size | Released scene (`--view`) |
 |---|---|---|---|
 | `street.yaml` | `street.png` | 720x1088 | `gau_bird3_complete1080.pth` |
 | `fish.yaml` | `coral.png` | 720x1088 | `gau_fish1_complete1080.pth` |

@@ -1,14 +1,12 @@
-// WonderZoom streaming viewer.
-//
-// Shared by two pages:
-//   - index_stream.html: render-only viewer (run_render_only.py), usually opened
-//     as a local file:// page with an SSH tunnel to localhost:7747.
-//   - index_gen.html: generation UI, served by run.py at '/'.
+// WonderZoom streaming client of splat-main/index_gen.html: the live view of
+// run.py, while generating or with --view (server-config view_only: only the
+// viewing controls are shown). run.py serves the page at '/'; it also works as
+// a local file:// page with an SSH tunnel to localhost:7747.
 // Every DOM element below is optional; all accesses must stay null-safe.
 //
 // Server URL: ?server=<host:port | url>, else window.WZ_DEFAULT_SERVER (set by
 // index_gen.html to the page origin when run.py serves it), else
-// http://localhost:7747 (the render-only default, as in the public release).
+// http://localhost:7747.
 
 let defaultViewMatrix = [-1,0,0,0,
     0,-1,0,0,
@@ -75,9 +73,7 @@ function resolveServerUrl() {
         if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(param)) param = 'http://' + param;
         return param;
     }
-    // Only the page that run.py serves (index_gen.html) sets this. The
-    // render-only page keeps connecting to localhost:7747 even when some other
-    // static server hosts it, because run_render_only.py serves no pages.
+    // index_gen.html sets this to the page origin when it is served over http.
     if (typeof window.WZ_DEFAULT_SERVER === 'string' && window.WZ_DEFAULT_SERVER) {
         return window.WZ_DEFAULT_SERVER;
     }
@@ -284,13 +280,16 @@ function applyServerConfig(cfg) {
         canvas.height = Math.round(canvas.width * h / w);
     }
     applyFeatures(cfg.features);
+    // run.py --view: hide the generation UI (elements with class view-hide).
+    document.body.classList.toggle('view-only', !!cfg.view_only);
+    document.title = cfg.view_only ? 'WonderZoom Viewer' : 'WonderZoom Generation';
 }
 
 // The trajectory lives on the server: trajectoryPointCount only mirrors the
 // count that run.py reports. H and J show nothing locally; the server replies
 // with 'server-state' "Trajectory point N added" / "Trajectory cleared", or
 // "<event> ignored: <reason>" when it refuses (that text is shown as is).
-// run_render_only.py does not reply, so H changes nothing there.
+// With run.py --view the server refuses them (view mode).
 function serverStateText(msg) {
     const text = (msg === null || msg === undefined) ? '' : String(msg);
     const added = /^Trajectory point (\d+) added$/.exec(text);

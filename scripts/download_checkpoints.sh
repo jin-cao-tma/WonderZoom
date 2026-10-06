@@ -6,12 +6,12 @@
 # Usage: bash scripts/download_checkpoints.sh GROUP... [options]
 # Groups:
 #   --core      main-process models: OneFormer, Marigold normals, GeometryCrafter + SVD-xt parts,
-#               MoGe ViT-L, RepViT-SAM (required)                                       ~12 GB
+#               MoGe ViT-L, RepViT-SAM (required for generation)                        ~12 GB
 #   --gen3c     Gen3C-Cosmos-7B, Cosmos tokenizer, T5-11B -> checkpoints/gen3c/          ~76 GB
 #   --coz       Stable Diffusion 3 Medium (gated, see below) + Qwen2.5-VL-3B             ~23 GB
 #   --step1x    Step1X-Edit v1.0 -> checkpoints/step1x/ + Qwen2.5-VL-7B (optional)       ~42 GB
 #   --objects   GroundingDINO, SAM ViT-H, BERT, SD2 inpainting, INR (optional)          ~6.8 GB
-#   --scenes    released render-only scenes -> gaussian/ (optional)                     ~7.8 GB
+#   --scenes    released scenes for run.py --view -> gaussian/ (optional)                ~7.8 GB
 #   --all       all of the above                                                       ~168 GB
 # Options:
 #   --dry-run       list files, sizes and what is missing per group; download nothing

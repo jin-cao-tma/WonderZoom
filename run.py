@@ -1,12 +1,17 @@
-"""WonderZoom generation server.
+"""WonderZoom server: generate a scene, or view a saved one.
 
 Builds a multi-scale 3D Gaussian scene from one image and grows it interactively: camera moves
 (Gen3C), zoom-ins (Chain-of-Zoom) and optional object insertion (Step1X-Edit). The browser UI
-(splat-main/index_gen.html) talks to this process over Socket.IO; the three video/image models run
-as worker processes in their own environments (services/, config/services.yaml).
+(splat-main/index_gen.html) shows the live scene and talks to this process over Socket.IO; the three
+video/image models run as worker processes in their own environments (services/, config/services.yaml).
+
+With --view the server only shows a saved scene (.pth): no generation model is loaded and no worker
+is started, so it needs only the wz-main environment and the scene file.
 
     python run.py --example_config config/more_examples/street.yaml
     python run.py --image my_photo.jpg --name my_scene
+    python run.py --view --example_config config/more_examples/street.yaml    # the config's pth_path
+    python run.py --view --pth_path runs/street/<session>/scenes/street_000.pth
 """
 import os
 import sys
@@ -22,7 +27,7 @@ ORIG_CWD = os.getcwd()  # user-relative CLI paths (--image, --example_config, ..
 
 
 def build_arg_parser():
-    parser = ArgumentParser(description="WonderZoom generation server")
+    parser = ArgumentParser(description="WonderZoom server: generate a scene, or view a saved one (--view)")
     parser.add_argument("--example_config", default="config/more_examples/street.yaml",
                         help="per-scene config merged over the base config")
     parser.add_argument("--base-config", "--base_config", dest="base_config", default="config/base-config.yaml",
@@ -31,6 +36,10 @@ def build_arg_parser():
                         help="generate from your own image (uses config/custom_template.yaml unless "
                              "--example_config is given explicitly)")
     parser.add_argument("--name", default=None, help="scene name used with --image (default: the file name)")
+    parser.add_argument("--view", action="store_true",
+                        help="view a saved scene (.pth) only: no generation model, no worker; needs only the wz-main "
+                             "environment. The scene is --pth_path, else pth_path of the example config")
+    parser.add_argument("--pth_path", default=None, help="saved scene to view (implies --view)")
     parser.add_argument("--services_config", default="config/services.yaml", help="model services config")
     parser.add_argument("--no_services", action="store_true",
                         help="do not start Gen3C / Chain-of-Zoom / Step1X-Edit (view and edit the initial scene only)")
@@ -40,9 +49,12 @@ def build_arg_parser():
                         help="logical GPU index of this process (default: gpu.main_device of the services config)")
     parser.add_argument("--host", default="127.0.0.1", help="bind address (use 0.0.0.0 to serve other machines)")
     parser.add_argument("--port", default=7747, type=int, help="port of the web UI / Socket.IO server")
-    parser.add_argument("--stream_max_size", default=256, type=int,
-                        help="longest edge (pixels) of the streamed preview frames")
-    parser.add_argument("--stream_quality", default=20, type=int, help="JPEG quality (1-100) of the streamed frames")
+    parser.add_argument("--stream_max_size", default=None, type=int,
+                        help="longest edge (pixels) of the streamed frames (default: 256 when generating, "
+                             "1080 with --view); lower it if the stream lags")
+    parser.add_argument("--stream_quality", default=None, type=int,
+                        help="JPEG quality (1-100) of the streamed frames (default: 20 when generating, 80 with "
+                             "--view); lower it if the stream lags")
     parser.add_argument("--debug", action="store_true",
                         help="open a post-mortem debugger when a request fails: ipdb if installed, else pdb "
                              "(default: log, roll back and continue)")
@@ -188,9 +200,13 @@ xyz_scale = 1000
 client_id = None
 scene_name = None
 
-# image transmission optimization config
-IMAGE_COMPRESSION_QUALITY = ARGS.stream_quality  # JPEG quality (1-100) of the streamed frames
-MAX_IMAGE_SIZE = ARGS.stream_max_size  # longest edge (pixels) of the streamed frames
+# --view: show a saved scene only (no generation model, no worker). --pth_path implies it.
+VIEW_MODE = bool(ARGS.view or ARGS.pth_path)
+VIEW_MODE_REASON = 'view mode (--view): generation is off; start run.py without --view to generate'
+
+# image transmission optimization config (viewing a finished scene streams at a higher quality)
+IMAGE_COMPRESSION_QUALITY = ARGS.stream_quality or (80 if VIEW_MODE else 20)  # JPEG quality (1-100)
+MAX_IMAGE_SIZE = ARGS.stream_max_size or (1080 if VIEW_MODE else 256)  # longest edge (pixels) of the frames
 ENABLE_RESOLUTION_SCALING = True  # whether to enable dynamic resolution scaling
 view_matrix = [-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
 view_matrix_wonder = [-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
@@ -530,6 +546,7 @@ def server_config_payload():
         "gen_H": int(cfg.get("orig_H", 0) or 0),
         "gen_W": int(cfg.get("orig_W", 0) or 0),
         "features": dict(FEATURES),
+        "view_only": VIEW_MODE,
     }
 
 
@@ -779,7 +796,7 @@ def reset_orbit_state():
 
 
 def save_scene_snapshot(gaussians_to_save):
-    """Save the scene to <session>/scenes/<example_name>_<NNN>.pth (loadable by run_render_only.py)."""
+    """Save the scene to <session>/scenes/<example_name>_<NNN>.pth (viewable with run.py --view --pth_path)."""
     scenes_dir = os.path.join(SESSION_DIR or os.getcwd(), "scenes")
     os.makedirs(scenes_dir, exist_ok=True)
     name = str(config.get('example_name', 'scene'))
@@ -3517,9 +3534,11 @@ def serve_splat_static(filename):
     return send_from_directory(SPLAT_DIR, filename)
 
 
-def _busy_reason(allow_preview=True):
-    """Why a new request cannot start now, or None."""
-    if gaussians is None or kf_gen is None or server_status.get('state') == 'loading':
+def _busy_reason(allow_preview=True, orbit_preview=False):
+    """Why a new request cannot start now, or None. In view mode only the orbit preview runs."""
+    if VIEW_MODE and not orbit_preview:
+        return VIEW_MODE_REASON
+    if gaussians is None or (kf_gen is None and not VIEW_MODE) or server_status.get('state') == 'loading':
         return 'the scene is still loading'
     if busy_job is not None:
         return f'busy with {busy_job}'
@@ -3547,7 +3566,11 @@ def handle_connect():
         payload = dict(server_status)
     emit('server-status', payload)
     emit('scene-prompt', scene_name)
-    if busy_job is None and scene_lock.acquire(timeout=0.5):  # a page opened after the last job
+    if VIEW_MODE:  # the scene never changes: no lock (the render thread holds it almost all the time)
+        stats = scene_stats_payload()
+        if stats is not None:
+            emit('scene-stats', stats)
+    elif busy_job is None and scene_lock.acquire(timeout=0.5):  # a page opened after the last job
         try:
             stats = scene_stats_payload()
         finally:
@@ -3565,6 +3588,9 @@ def handle_disconnect():
 @socketio.on('rewrite')
 def handle_rewrite():
     global rewrite_background
+    if VIEW_MODE:
+        _reject('rewrite', VIEW_MODE_REASON)
+        return
     rewrite_background = not rewrite_background
     socketio.emit('server-state', f"🔄 Rewrite background: {rewrite_background}", room=client_id)
     print(f"🔄 Rewrite background: {rewrite_background}")
@@ -3632,7 +3658,7 @@ def handle_gen(data):
 @socketio.on('generate-nvs')
 def handle_generate_nvs():
     global orbit_state
-    reason = _busy_reason(allow_preview=False)
+    reason = _busy_reason(allow_preview=False, orbit_preview=True)
     if reason:
         _reject('orbit preview', reason)
         return
@@ -3731,6 +3757,9 @@ def handle_new_prompt(data):
     The prompt is kept across camera moves until a zoom-in uses it. A zoom-in uses the prompt that
     was set when it was accepted (handle_gen); a prompt sent while it runs waits for the next one."""
     global scene_name
+    if VIEW_MODE:
+        _reject('scene-prompt', VIEW_MODE_REASON)
+        return
     if not isinstance(data, str):
         _reject('scene-prompt', 'expected a string')
         return
@@ -3804,6 +3833,9 @@ def handle_delete(data):
 def handle_add_trajectory_point(data):
     global trajectory_points, fx_wonder, fy_wonder
 
+    if VIEW_MODE:
+        _reject('add-trajectory-point', VIEW_MODE_REASON)
+        return
     if not isinstance(data, dict) or not isinstance(data.get('viewMatrix'), (list, tuple)):
         _reject('add-trajectory-point', 'expected {viewMatrix, fx, fy}')
         return
@@ -3836,6 +3868,9 @@ def handle_add_trajectory_point(data):
 @socketio.on('clear-trajectory')
 def handle_clear_trajectory():
     global trajectory_points
+    if VIEW_MODE:
+        _reject('clear-trajectory', VIEW_MODE_REASON)
+        return
     if busy_job in ('zoom', 'move'):
         _reject('clear-trajectory', f'busy with {busy_job}')
         return
@@ -3847,6 +3882,9 @@ def handle_clear_trajectory():
 def handle_complete_background():
     """P key: inpaint the background behind the objects of the current view (object-insertion stack)."""
     global complete_background_pose, busy_job
+    if VIEW_MODE:
+        _reject('complete-background', VIEW_MODE_REASON)
+        return
     if not FEATURES.get('objects'):
         _reject('complete-background', 'object insertion is not available')
         return
@@ -4141,6 +4179,40 @@ def render_current_scene():
                 _report_render_error(e)
 
 
+def _camera_from_view_matrix(view_matrix, fx=None, fy=None):
+    """PyTorch3D camera of a frontend view matrix: the math of VideoGaussianProcessor.get_camera_by_js_view_matrix
+    and get_camera_at_origin (principal point at orig_W/2, orig_H/2), without the models (--view)."""
+    from pytorch3d.renderer import PerspectiveCameras
+    device = torch.device("cuda")
+    height, width = config["orig_H"], config["orig_W"]
+    K = torch.zeros((1, 4, 4), device=device)
+    K[0, 0, 0] = config["init_focal_length"]
+    K[0, 1, 1] = config["init_focal_length"]
+    K[0, 0, 2] = width // 2
+    K[0, 1, 2] = height // 2
+    K[0, 2, 3] = 1
+    K[0, 3, 2] = 1
+    camera = PerspectiveCameras(K=K, R=torch.eye(3, device=device).unsqueeze(0), T=torch.zeros((1, 3), device=device),
+                                in_ndc=False, image_size=((height, width),), device=device)
+    vm = torch.tensor(view_matrix, device=device, dtype=torch.float).reshape(4, 4)
+    xy_negate = torch.tensor([[-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]], device=device, dtype=torch.float)
+    vm = vm @ xy_negate
+    camera.R = vm[:3, :3].unsqueeze(0)
+    camera.T = vm[3, :3].unsqueeze(0) / xyz_scale
+    if fx is not None:
+        camera.K[0, 0, 0] = fx
+    if fy is not None:
+        camera.K[0, 1, 1] = fy
+    return camera
+
+
+def _view_camera(view_matrix, fx, fy):
+    """Camera of the current frontend view (kf_gen's; in view mode the same math without the models)."""
+    if kf_gen is None:
+        return _camera_from_view_matrix(view_matrix, fx, fy)
+    return kf_gen.get_camera_by_js_view_matrix(view_matrix, xyz_scale=xyz_scale, fx_wonder=fx, fy_wonder=fy)
+
+
 def _draw_frame():
     """Render the current view, or the next orbit camera, into latest_frame (scene_lock held)."""
     global latest_frame, orbit_state
@@ -4153,12 +4225,7 @@ def _draw_frame():
             # Get orbit cameras
             if orbit_state['cameras'] is None:
                 # Use the current camera position and orientation
-                current_camera = kf_gen.get_camera_by_js_view_matrix(
-                    view_matrix_wonder, 
-                    xyz_scale=xyz_scale, 
-                    fx_wonder=fx_wonder, 
-                    fy_wonder=fy_wonder
-                )
+                current_camera = _view_camera(view_matrix_wonder, fx_wonder, fy_wonder)
                 # Different parameters based on mode
                 if orbit_state['mode'] == 'high_quality':
                     # High-quality NVS: with transition frames for smooth video (Gen3C: 121 frames)
@@ -4227,12 +4294,7 @@ def _draw_frame():
                     socketio.emit('server-state', 'Orbit preview finished', room=client_id)
         else:
             # Normal rendering of the current view
-            current_camera = kf_gen.get_camera_by_js_view_matrix(
-                view_matrix_wonder, 
-                xyz_scale=xyz_scale, 
-                fx_wonder=fx_wonder, 
-                fy_wonder=fy_wonder
-            )
+            current_camera = _view_camera(view_matrix_wonder, fx_wonder, fy_wonder)
             tdgs_cam = convert_pt3d_cam_to_3dgs_cam(current_camera, xyz_scale=xyz_scale, config=config)
             render_pkg = render(tdgs_cam, gaussians, opt, background, render_visible=True, config=config)
             rendered_img = render_pkg['render']
@@ -4599,9 +4661,83 @@ def save_rough_video_frames(pc_imgs, masks, cameras, save_dir="./frames", input_
         cv2.imwrite(os.path.join(save_dir, f"saved_frames/masks/mask_{frame_num}.png"), u)    
 
 
+def view_main(args):
+    """--view: stream a saved scene (.pth). No generation model is loaded and no worker is started.
+
+    The example config gives the scene (pth_path, unless --pth_path is given), its render size
+    (orig_H / orig_W, else gen_H / gen_W) and the orbit cameras of the Space key
+    (generate_orbit_cameras_code). Returns the exit code."""
+    global config, gaussians, fx_wonder, fy_wonder, generate_orbit_cameras, render_stop
+    if args.image is not None or args.name is not None:
+        sys.exit("--image / --name generate a new scene; they cannot be combined with --view / --pth_path")
+    print("🚀 Starting the WonderZoom viewer (--view: no generation models)...")
+    config = OmegaConf.merge(OmegaConf.load(_resolve_cli_path(args.base_config)),
+                             OmegaConf.load(_resolve_cli_path(args.example_config)))
+    for orig_key, gen_key in (('orig_H', 'gen_H'), ('orig_W', 'gen_W')):
+        if config.get(orig_key, None) is None and config.get(gen_key, None) is not None:
+            config[orig_key] = config[gen_key]
+    if config.get('orig_H', None) is None or config.get('orig_W', None) is None:
+        sys.exit("orig_H and orig_W (or gen_H and gen_W) must be set in the example config")
+
+    if config.get('generate_orbit_cameras_code', None):
+        try:
+            print("Loading custom generate_orbit_cameras function from config...")
+            local_namespace = {}
+            exec(config.generate_orbit_cameras_code, globals(), local_namespace)
+            generate_orbit_cameras = local_namespace['generate_orbit_cameras']
+            print("Successfully loaded custom generate_orbit_cameras function")
+        except Exception as e:
+            print(f"Error loading custom generate_orbit_cameras function: {e}; using the default one")
+
+    pth_path = args.pth_path or config.get('pth_path', None)
+    if not pth_path:
+        sys.exit("no scene to view: pass --pth_path or set pth_path in the example config")
+    pth_path = _resolve_cli_path(str(pth_path))
+    if not os.path.isfile(pth_path):
+        sys.exit(f"scene not found: {pth_path}\nDownload the released scenes (see README.md) or pass --pth_path.")
+    if args.dry_run:
+        print(json.dumps({"view": True, "pth_path": pth_path, "orig_H": int(config['orig_H']),
+                          "orig_W": int(config['orig_W']), "init_focal_length": float(config['init_focal_length']),
+                          "custom_orbit": bool(config.get('generate_orbit_cameras_code', None)),
+                          "stream_max_size": MAX_IMAGE_SIZE, "stream_quality": IMAGE_COMPRESSION_QUALITY,
+                          "CUDA_VISIBLE_DEVICES": os.environ.get("CUDA_VISIBLE_DEVICES")}, indent=1))
+        print("dry run: config and scene path OK; exiting before loading the scene")
+        return 0
+    gaussians = load_gaussian_with_global_labels(pth_path, config)
+    print(f"  {int(gaussians.get_xyz_all.shape[0])} points, render size {config['orig_W']}x{config['orig_H']}")
+    fx_wonder = fy_wonder = config["init_focal_length"]
+    set_status('idle', None, f'Viewing {os.path.basename(pth_path)}')
+
+    server_thread = threading.Thread(target=start_server, args=(args.host, args.port), daemon=True)
+    server_thread.start()
+    print(f"🌐 Open http://{'localhost' if args.host in ('127.0.0.1', '0.0.0.0') else args.host}:{args.port}/")
+    render_thread = threading.Thread(target=render_current_scene, daemon=True)
+    render_thread.start()
+
+    def _on_sigterm(signum, frame):
+        print("Terminated (SIGTERM); shutting down")
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    exit_code = 1  # the web server stopped by itself (e.g. the port is in use)
+    try:
+        while server_thread.is_alive():
+            server_thread.join(timeout=1.0)
+    except KeyboardInterrupt:
+        print("Interrupted")
+        exit_code = 0
+    finally:
+        render_stop = True
+        # Let the render thread leave torch first (see the generation shutdown below).
+        render_thread.join(timeout=10)
+    return exit_code
+
+
 if __name__ == "__main__":
-    print("🚀 Starting the WonderZoom generation server...")
     args = ARGS
+    if VIEW_MODE:
+        sys.exit(view_main(args))
+    print("🚀 Starting the WonderZoom generation server...")
 
     def reload_config(example_config=None, base_config=None, image=None, name=None):
         """Merge the base and the example config (the example wins, as in the paper-era code) and
